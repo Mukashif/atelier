@@ -46,7 +46,7 @@
   },
   "plugins": {
     "updater": {
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDc4N0I3RkREQzVFMkFEQ0EKUldUS3JlTEYzWDk3ZU5IeGc4SFdEaThkb1BKVmFwVGh2S3AyVUt4YUp2MktGWUU3NWw3ei9LNUgK",
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDQ2OTYzN0M5RkJGODg0RDEKUldUUmhQajd5VGVXUnRXU2I5cTZuYjI2QmZ1WjRQYmJ0bUp4cG9VRG9UN01rK092RW9vU1E3d2cK",
       "endpoints": [
         "https://github.com/Mukashif/atelier/releases/latest/download/latest.json"
       ],

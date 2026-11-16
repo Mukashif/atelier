@@ -11,6 +11,17 @@ export const api = {
   setRoot: (path) => invoke('set_root', { path }),
   rescan: () => invoke('rescan'),
   importBookrack: (dataDir, root = null) => invoke('import_bookrack', { dataDir, root }),
+  settings: () => invoke('get_settings'),
+  setPref: (key, value) => invoke('set_pref', { key, value }),
+  setList: (kind, items) => invoke('set_list', { kind, items }),
+  renameListItem: (kind, old, renamed) => invoke('rename_list_item', { kind, old, new: renamed }),
+  setCover: (id, path) => invoke('set_cover', { id, path }),
+  openMonthFolder: () => invoke('open_month_folder'),
+  openSpecial: (which) => invoke('open_special', { which }),
+  orphans: () => invoke('orphans'),
+  relink: (orphanId, targetId) => invoke('relink', { orphanId, targetId }),
+  forget: (id) => invoke('forget', { id }),
+  exportBackup: (path) => invoke('export_backup', { path }),
 };
 
 /** Small (grid) or large (details) thumbnail URL; `v` busts the cache. */

@@ -2,6 +2,7 @@
   // Library / Favorites / Archive grid (SPEC §6.3, §6.12).
   // Month rows: a label column that stays in view + a wrapping grid. The
   // details panel is inserted as an extra row under the clicked cover's row.
+  import { untrack } from 'svelte';
   import Cover from './Cover.svelte';
   import Details from './Details.svelte';
   import { statusColor } from './api.js';
@@ -16,7 +17,43 @@
     categories,
     onEdit,
     onOpen,
+    selectMode = false,
+    selectedIds = [],
+    onToggleSelect = () => {},
+    onSetSelected = () => {},
+    onContext = () => {},
+    onChangeCover = () => {},
+    request = null,
   } = $props();
+
+  // Another screen asked to select (and maybe rename) a project.
+  $effect(() => {
+    if (!request) return;
+    const r = request;
+    untrack(() => {
+      selectedId = r.id;
+      if (r.rename) renameRequest += 1;
+    });
+    queueMicrotask(() => document.querySelector(`[data-id="${request.id}"]`)?.scrollIntoView({ block: "center" }));
+  });
+  const selectedSet = $derived(new Set(selectedIds));
+  let anchor = null; // last clicked id, for Shift-click ranges
+
+  function clickTile(e, p, items) {
+    if (!selectMode) return select(p.id);
+    if (e.shiftKey && anchor != null) {
+      const a = items.findIndex((x) => x.id === anchor);
+      const b = items.findIndex((x) => x.id === p.id);
+      if (a >= 0 && b >= 0) {
+        const [lo, hi] = a < b ? [a, b] : [b, a];
+        onSetSelected(items.slice(lo, hi + 1).map((x) => x.id), true);
+        anchor = p.id;
+        return;
+      }
+    }
+    anchor = p.id;
+    onToggleSelect(p.id);
+  }
 
   const GAP = 22;
   const minWidth = $derived(view === 'favorites' ? 210 : 150);
@@ -83,6 +120,7 @@
   }
 
   function onKey(e) {
+    if (selectMode && !['a', 'A'].includes(e.key)) return;
     const typing = e.target.closest?.('input, textarea, select, [contenteditable]');
     if (typing) return;
     switch (e.key) {
@@ -91,6 +129,9 @@
       case 'ArrowDown': e.preventDefault(); move(cols); break;
       case 'ArrowUp': e.preventDefault(); move(-cols); break;
       case 'Escape': selectedId = null; break;
+      case 'a': case 'A':
+        if (selectMode && (e.ctrlKey || e.metaKey)) { e.preventDefault(); onSetSelected(projects.map((p) => p.id), true); }
+        break;
       case 'Enter': if (selected) { e.preventDefault(); onOpen(selected.id); } break;
       case 'F2': if (selected) { e.preventDefault(); renameRequest += 1; } break;
       case 'f': case 'F':
@@ -114,6 +155,12 @@
             <span class="num display">{g.label.num}</span>
             <span class="name">{g.label.name}</span>
             <span class="count mono">{g.items.length} {view === 'archive' ? 'ARCHIVED' : 'PROJECTS'}</span>
+            {#if selectMode}
+              {@const allOn = g.items.every((p) => selectedSet.has(p.id))}
+              <button class="btn small" onclick={() => onSetSelected(g.items.map((p) => p.id), !allOn)}>
+                {allOn ? 'Deselect all' : 'Select all'} {g.items.length}
+              </button>
+            {/if}
           </div>
         </div>
       {/if}
@@ -123,14 +170,20 @@
             {#each row as p (p.id)}
               <button
                 class="tile"
-                class:selected={p.id === selectedId}
+                class:selected={!selectMode && p.id === selectedId}
+                class:picked={selectMode && selectedSet.has(p.id)}
+                class:dim={selectMode && selectedIds.length > 0 && !selectedSet.has(p.id)}
                 data-id={p.id}
-                aria-pressed={p.id === selectedId}
+                aria-pressed={selectMode ? selectedSet.has(p.id) : p.id === selectedId}
                 aria-label={p.title}
-                onclick={() => select(p.id)}
-                ondblclick={() => onOpen(p.id)}
+                onclick={(e) => clickTile(e, p, g.items)}
+                ondblclick={() => !selectMode && onOpen(p.id)}
+                oncontextmenu={(e) => { e.preventDefault(); if (!selectMode) onContext(e, p); }}
               >
-                <Cover {p} v={versions[p.id] ?? 0} {busy} />
+                <span class="cover-wrap">
+                  <Cover {p} v={versions[p.id] ?? 0} {busy} />
+                  {#if selectMode}<span class="check" class:on={selectedSet.has(p.id)} aria-hidden="true">✓</span>{/if}
+                </span>
                 <span class="t">{p.title}</span>
                 <span class="s">
                   <span class="dot" style:background={statusColor(p.status, statuses)}></span>{p.status}
@@ -139,7 +192,7 @@
               </button>
             {/each}
           </div>
-          {#if selected && row.some((p) => p.id === selectedId)}
+          {#if !selectMode && selected && row.some((p) => p.id === selectedId)}
             <Details
               p={selected}
               v={versions[selected.id] ?? 0}
@@ -150,6 +203,7 @@
               notchLeft={notchLeft(row)}
               onEdit={(edit) => onEdit([selected.id], edit)}
               onOpen={() => onOpen(selected.id)}
+              onChangeCover={() => onChangeCover(selected)}
               onClose={() => (selectedId = null)}
             />
           {/if}
@@ -185,6 +239,17 @@
   .tile.selected :global(.cover) { outline: 3px solid var(--text); outline-offset: 4px; }
   .tile:focus-visible { outline: none; }
   .tile:focus-visible :global(.cover) { outline: 2px solid var(--text); outline-offset: 4px; }
+  .cover-wrap { position: relative; display: block; }
+  .check {
+    position: absolute; top: 8px; left: 8px; width: 24px; height: 24px; border-radius: 6px;
+    border: 1.5px solid rgba(229, 223, 209, 0.8); background: rgba(18, 18, 18, 0.55);
+    color: transparent; display: flex; align-items: center; justify-content: center; font-size: 14px; font-weight: 700;
+  }
+  .check.on { background: var(--text); border-color: var(--text); color: var(--on-text); }
+  .tile.picked :global(.cover) { outline: 3px solid var(--text); outline-offset: 4px; }
+  .tile.dim { opacity: 0.62; }
+  .tile.dim:hover { opacity: 1; }
+  :global(.btn.small) { height: 32px; padding: 0 12px; font-size: 13px; align-self: flex-start; margin-top: 12px; }
   .t { font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .s { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-3); }
   .dot { width: 6px; height: 6px; border-radius: 50%; flex: none; }

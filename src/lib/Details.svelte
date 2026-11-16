@@ -14,6 +14,7 @@
     onEdit,
     onOpen,
     onClose,
+    onChangeCover = () => {},
   } = $props();
 
   let panel = $state();
@@ -87,6 +88,7 @@
       </div>
       <div class="actions">
         <button class="btn primary" onclick={onOpen}>Open folder</button>
+        <button class="btn" onclick={onChangeCover}>Change cover</button>
         <button class="btn" onclick={startRename}>Rename</button>
         <button class="btn" onclick={() => onEdit({ kind: 'favorite', value: !p.isFavorite })}>
           {p.isFavorite ? '★ Favourite' : '☆ Favourite'}

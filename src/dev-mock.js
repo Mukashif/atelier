@@ -5,8 +5,8 @@ import { mockIPC, mockConvertFileSrc, mockWindows } from '@tauri-apps/api/mocks'
 
 mockWindows('main');
 
-const statuses = ['In-Progress', 'Done', 'Delivered'];
-const categories = ['Book Covers', 'Typography', 'Misc'];
+let statuses = ['In-Progress', 'Done', 'Delivered'];
+let categories = ['Book Covers', 'Typography', 'Misc'];
 const names = ['Salt Orchard', 'Ember', 'Ninth Tide', 'Glass Heron', 'Quiet Cartography', 'Small Hours', 'Last Archivist',
   'Iron and Ivy', 'Paper Lanterns', 'Winter Ledger', 'Marrow & Moss', 'Hollow Crown', 'Letters to the Sea', 'Fox Who Stayed'];
 const months = ['November 2025', 'October 2025', 'September 2025', 'August 2025', 'Misc'];
@@ -24,7 +24,7 @@ months.forEach((m, mi) => {
       isFavorite: i % 7 === 0, isArchived: i % 11 === 10, present: true,
       coverKind: i % 9 === 4 ? 'unsupported' : i % 13 === 6 ? null : 'image',
       coverRel: i % 9 === 4 ? 'cover_final.psd' : 'cover.jpg', manualCover: null, coverMtime: 1,
-      lastOpenedAt: null, favoritedAt: null, archivedAt: null,
+      lastOpenedAt: mi === 0 && i < 6 ? Date.now() - i * 5 * 86_400_000 * (i > 3 ? 4 : 1) : null, favoritedAt: null, archivedAt: null,
     });
   }
 });
@@ -40,6 +40,17 @@ function list(q) {
   else rows.sort((a, b) => (a.year == null) - (b.year == null) || (b.year ?? 0) - (a.year ?? 0) || (b.month ?? 0) - (a.month ?? 0) || a.title.localeCompare(b.title));
   return rows.map((p) => ({ ...p, tags: [...p.tags] }));
 }
+
+const prefs = { defaultCategory: categories[0], openOnLaunch: "desk", groupByMonth: true, reduceMotion: false, checkUpdatesOnLaunch: true, lastExportAt: null };
+function settings() {
+  const counts = {};
+  for (const p of list({})) {
+    counts[`category:${p.category}`] = (counts[`category:${p.category}`] ?? 0) + 1;
+    counts[`status:${p.status}`] = (counts[`status:${p.status}`] ?? 0) + 1;
+  }
+  return { root: "E:\Sample Library", dataDir: "C:\Users\you\AppData\Roaming\com.mani.atelier", version: "0.1.0", categories, statuses, ...prefs, counts };
+}
+const orphanList = [{ project: { ...projects[3], id: 999, relPath: "May 2022/Fox Cover", title: "Fox Cover", present: false }, suggestion: projects[5] }];
 
 function edit(ids, e) {
   for (const p of projects.filter((p) => ids.includes(p.id))) {
@@ -66,6 +77,22 @@ mockIPC(
         };
       case 'list_projects': return list(args.query);
       case 'apply_edit': return edit(args.ids, args.edit);
+      case "get_settings": return settings();
+      case "set_pref": prefs[args.key] = args.value; return null;
+      case "set_list": if (args.kind === "categories") categories = args.items; else statuses = args.items; return null;
+      case "rename_list_item": {
+        const field = args.kind === "categories" ? "category" : "status";
+        let n = 0;
+        for (const p of projects) if (p[field] === args.old) { p[field] = args.new; n++; }
+        if (args.kind === "categories") categories = categories.map((c) => (c === args.old ? args.new : c));
+        else statuses = statuses.map((c) => (c === args.old ? args.new : c));
+        return n;
+      }
+      case "orphans": return orphanList;
+      case "relink": case "forget": orphanList.length = 0; return null;
+      case "open_month_folder": return "November 2025";
+      case "plugin:dialog|open": case "plugin:dialog|save": return null;
+      case "export_backup": prefs.lastExportAt = Date.now(); return null;
       default: return null;
     }
   },

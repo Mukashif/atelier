@@ -3,6 +3,7 @@
 
 mod bookrack;
 
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -145,6 +146,203 @@ fn import_bookrack(app: AppHandle, state: State<'_, Shared>, data_dir: String, r
     }
     start_rescan(app, state.inner().clone(), Some(data));
     Ok(())
+}
+
+// ---------------------------------------------------------------- settings
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SettingsDto {
+    root: Option<String>,
+    data_dir: String,
+    version: String,
+    categories: Vec<String>,
+    statuses: Vec<String>,
+    default_category: String,
+    open_on_launch: String,
+    group_by_month: bool,
+    reduce_motion: bool,
+    check_updates_on_launch: bool,
+    last_export_at: Option<i64>,
+    counts: HashMap<String, i64>,
+}
+
+const PREF_KEYS: &[&str] = &["defaultCategory", "openOnLaunch", "groupByMonth", "reduceMotion", "checkUpdatesOnLaunch"];
+
+#[tauri::command]
+fn get_settings(app: AppHandle, state: State<'_, Shared>) -> Result<SettingsDto, String> {
+    let db = state.db.lock().map_err(err)?;
+    let get_bool = |k: &str, d: bool| -> Result<bool, String> {
+        Ok(db.get_setting(k).map_err(err)?.and_then(|v| v.as_bool()).unwrap_or(d))
+    };
+    // How many projects use each category / status (for the Settings lists).
+    let mut counts = HashMap::new();
+    for r in db.list(&Query::default()).map_err(err)? {
+        *counts.entry(format!("category:{}", r.category)).or_insert(0) += 1;
+        *counts.entry(format!("status:{}", r.status)).or_insert(0) += 1;
+    }
+    Ok(SettingsDto {
+        root: db.root_folder().map_err(err)?.map(|r| r.to_string_lossy().into_owned()),
+        data_dir: state.data_dir.to_string_lossy().into_owned(),
+        version: app.package_info().version.to_string(),
+        categories: db.categories().map_err(err)?,
+        statuses: db.statuses().map_err(err)?,
+        default_category: db.default_category().map_err(err)?,
+        open_on_launch: db
+            .get_setting("openOnLaunch")
+            .map_err(err)?
+            .and_then(|v| v.as_str().map(str::to_string))
+            .unwrap_or_else(|| "desk".into()),
+        group_by_month: get_bool("groupByMonth", true)?,
+        reduce_motion: get_bool("reduceMotion", false)?,
+        check_updates_on_launch: get_bool("checkUpdatesOnLaunch", true)?,
+        last_export_at: db.get_setting("lastExportAt").map_err(err)?.and_then(|v| v.as_i64()),
+        counts,
+    })
+}
+
+#[tauri::command]
+fn set_pref(state: State<'_, Shared>, key: String, value: serde_json::Value) -> Result<(), String> {
+    if !PREF_KEYS.contains(&key.as_str()) {
+        return Err(format!("unknown setting {key}"));
+    }
+    state.db.lock().map_err(err)?.set_setting(&key, &value).map_err(err)
+}
+
+/// Replace the category or status list (add, delete, reorder).
+#[tauri::command]
+fn set_list(state: State<'_, Shared>, kind: String, items: Vec<String>) -> Result<(), String> {
+    let mut seen = std::collections::HashSet::new();
+    let items: Vec<String> = items
+        .into_iter()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty() && seen.insert(s.to_lowercase()))
+        .collect();
+    let db = state.db.lock().map_err(err)?;
+    match kind.as_str() {
+        "categories" => db.set_categories(&items),
+        "statuses" => db.set_statuses(&items),
+        _ => return Err(format!("unknown list {kind}")),
+    }
+    .map_err(err)
+}
+
+/// Rename a category/status everywhere; returns how many projects changed.
+#[tauri::command]
+fn rename_list_item(state: State<'_, Shared>, kind: String, old: String, new: String) -> Result<usize, String> {
+    let new = new.trim();
+    if new.is_empty() {
+        return Err("name can't be empty".into());
+    }
+    let mut db = state.db.lock().map_err(err)?;
+    match kind.as_str() {
+        "categories" => db.rename_category(&old, new),
+        "statuses" => db.rename_status(&old, new),
+        _ => return Err(format!("unknown list {kind}")),
+    }
+    .map_err(err)
+}
+
+// ------------------------------------------------------------ covers & folders
+
+/// Use a picked image as the cover; regenerate its thumbnails right away.
+#[tauri::command]
+fn set_cover(app: AppHandle, state: State<'_, Shared>, id: i64, path: String) -> Result<(), String> {
+    let source = PathBuf::from(&path);
+    let name = source.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    if !source.is_file() || !scan::has_ext(&name, scan::IMAGE_EXTS) {
+        return Err("choose a JPG, PNG or WebP image".into());
+    }
+    state.db.lock().map_err(err)?.apply_edit(&[id], &Edit::ManualCover(Some(path))).map_err(err)?;
+    let job = thumbs::ThumbJob { project_id: id, source, project_dir: None, force: true };
+    let cache = state.cache_dir.clone();
+    std::thread::spawn(move || {
+        let _ = thumbs::ensure(&job, &cache);
+        let _ = thumbs::ensure_large(&job, &cache);
+        let _ = app.emit("thumbs-ready", vec![id]);
+    });
+    Ok(())
+}
+
+/// Open (creating if needed) the folder for the current month, e.g. "November 2025".
+/// The only thing Atelier ever creates inside the library, and only on request.
+#[tauri::command]
+fn open_month_folder(app: AppHandle, state: State<'_, Shared>) -> Result<String, String> {
+    let root = state.db.lock().map_err(err)?.root_folder().map_err(err)?.ok_or("no library folder")?;
+    let (y, m) = current_year_month();
+    let name = atelier_core::month::month_folder_name(y, m);
+    // Reuse an existing folder for this month even if it's named differently.
+    let existing = std::fs::read_dir(&root)
+        .map_err(err)?
+        .filter_map(Result::ok)
+        .filter(|e| e.path().is_dir())
+        .find(|e| atelier_core::month::parse_month_folder(&e.file_name().to_string_lossy()) == Some((y, m)))
+        .map(|e| e.path());
+    let dir = match existing {
+        Some(d) => d,
+        None => {
+            let d = root.join(&name);
+            std::fs::create_dir(&d).map_err(err)?;
+            d
+        }
+    };
+    app.opener().open_path(dir.to_string_lossy(), None::<&str>).map_err(err)?;
+    Ok(dir.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or(name))
+}
+
+/// Open the library folder ("root") or Atelier's data folder ("data").
+#[tauri::command]
+fn open_special(app: AppHandle, state: State<'_, Shared>, which: String) -> Result<(), String> {
+    let path = match which.as_str() {
+        "root" => state.db.lock().map_err(err)?.root_folder().map_err(err)?.ok_or("no library folder")?,
+        "data" => state.data_dir.clone(),
+        _ => return Err(format!("unknown folder {which}")),
+    };
+    app.opener().open_path(path.to_string_lossy(), None::<&str>).map_err(err)
+}
+
+/// Year and month for "now", in UTC (close enough for naming a month folder).
+fn current_year_month() -> (i32, u32) {
+    let days = now_ms().div_euclid(86_400_000);
+    // Civil-from-days (Howard Hinnant).
+    let z = days + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z - era * 146_097;
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let month = if mp < 10 { mp + 3 } else { mp - 9 } as u32;
+    let year = (yoe + era * 400 + if month <= 2 { 1 } else { 0 }) as i32;
+    (year, month)
+}
+
+// ----------------------------------------------------------------- orphans
+
+#[tauri::command]
+fn orphans(state: State<'_, Shared>) -> Result<Vec<atelier_core::db::Orphan>, String> {
+    state.db.lock().map_err(err)?.orphans().map_err(err)
+}
+
+#[tauri::command]
+fn relink(app: AppHandle, state: State<'_, Shared>, orphan_id: i64, target_id: i64) -> Result<(), String> {
+    state.db.lock().map_err(err)?.relink(orphan_id, target_id).map_err(err)?;
+    let _ = app.emit("library-changed", ());
+    Ok(())
+}
+
+#[tauri::command]
+fn forget(app: AppHandle, state: State<'_, Shared>, id: i64) -> Result<(), String> {
+    state.db.lock().map_err(err)?.forget(id).map_err(err)?;
+    let _ = app.emit("library-changed", ());
+    Ok(())
+}
+
+#[tauri::command]
+fn export_backup(state: State<'_, Shared>, path: String) -> Result<(), String> {
+    let db = state.db.lock().map_err(err)?;
+    let backup = db.export_backup().map_err(err)?;
+    std::fs::write(&path, serde_json::to_string_pretty(&backup).map_err(err)?).map_err(err)?;
+    db.set_setting("lastExportAt", &serde_json::json!(now_ms())).map_err(err)
 }
 
 // --------------------------------------------------------- background work
@@ -299,7 +497,18 @@ pub fn run() {
             open_folder,
             set_root,
             rescan,
-            import_bookrack
+            import_bookrack,
+            get_settings,
+            set_pref,
+            set_list,
+            rename_list_item,
+            set_cover,
+            open_month_folder,
+            open_special,
+            orphans,
+            relink,
+            forget,
+            export_backup
         ])
         .run(tauri::generate_context!())
         .expect("error while running Atelier");

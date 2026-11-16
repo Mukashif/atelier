@@ -82,6 +82,14 @@ impl ProjectRow {
     }
 }
 
+/// A project whose folder wasn't found, with a likely replacement.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Orphan {
+    pub project: ProjectRow,
+    pub suggestion: Option<ProjectRow>,
+}
+
 /// `a/b/c` → platform path.
 pub fn rel_to_path(rel: &str) -> PathBuf {
     rel.split('/').collect()
@@ -494,6 +502,122 @@ impl Db {
         Ok(n)
     }
 
+    pub fn set_categories(&self, list: &[String]) -> Result<()> {
+        self.set_setting("categories", &serde_json::json!(list))
+    }
+
+    pub fn set_statuses(&self, list: &[String]) -> Result<()> {
+        self.set_setting("statuses", &serde_json::json!(list))
+    }
+
+    /// Category given to projects nobody has categorised.
+    pub fn default_category(&self) -> Result<String> {
+        Ok(self.defaults()?.category)
+    }
+
+    // ----------------------------------------------------------------- orphans
+
+    /// Projects whose folder wasn't found on the last scan, each with a likely
+    /// match: a present project with the same folder name that has no edits.
+    pub fn orphans(&self) -> Result<Vec<Orphan>> {
+        let all = self.list(&Query { include_missing: true, ..Default::default() })?;
+        let archived = self.list(&Query { include_missing: true, archived: true, ..Default::default() })?;
+        let rows: Vec<ProjectRow> = all.into_iter().chain(archived).collect();
+        let present: Vec<&ProjectRow> = rows.iter().filter(|r| r.present).collect();
+        let mut out = Vec::new();
+        for r in rows.iter().filter(|r| !r.present) {
+            let name = r.folder_name.to_lowercase();
+            let same_name: Vec<&&ProjectRow> = present.iter().filter(|p| p.folder_name.to_lowercase() == name).collect();
+            let suggestion = same_name
+                .iter()
+                .find(|p| p.month_folder == r.month_folder)
+                .or_else(|| same_name.first())
+                .map(|p| (**p).clone());
+            out.push(Orphan { project: r.clone(), suggestion });
+        }
+        Ok(out)
+    }
+
+    /// Move an orphan's edits onto a present project, then drop the orphan.
+    pub fn relink(&mut self, orphan_id: i64, target_id: i64) -> Result<()> {
+        let tx = self.conn.transaction()?;
+        let n = tx.execute(
+            "UPDATE projects SET
+               title_override = o.title_override, category = o.category, status = o.status,
+               manual_cover = o.manual_cover, is_favorite = o.is_favorite, favorited_at = o.favorited_at,
+               is_archived = o.is_archived, archived_at = o.archived_at,
+               last_opened_at = COALESCE(o.last_opened_at, projects.last_opened_at)
+             FROM (SELECT * FROM projects WHERE id = ?1) AS o
+             WHERE projects.id = ?2",
+            params![orphan_id, target_id],
+        )?;
+        if n == 0 {
+            return Err(DbError::NotFound(target_id));
+        }
+        tx.execute(
+            "INSERT OR IGNORE INTO project_tags(project_id, tag) SELECT ?2, tag FROM project_tags WHERE project_id = ?1",
+            params![orphan_id, target_id],
+        )?;
+        tx.execute("DELETE FROM projects WHERE id = ?1 AND present = 0", [orphan_id])?;
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// Forget a missing project and its edits.
+    pub fn forget(&mut self, id: i64) -> Result<()> {
+        self.conn.execute("DELETE FROM projects WHERE id = ?1 AND present = 0", [id])?;
+        Ok(())
+    }
+
+    // ------------------------------------------------------------------ backup
+
+    /// `.atelier` backup (SPEC §7): settings + every project's edits, keyed by
+    /// relative path. Scanned facts are left out; a rescan rebuilds them.
+    pub fn export_backup(&self) -> Result<Value> {
+        let mut settings = serde_json::Map::new();
+        {
+            let mut stmt = self.conn.prepare("SELECT key, value FROM settings ORDER BY key")?;
+            let rows = stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))?;
+            for row in rows {
+                let (k, v) = row?;
+                settings.insert(k, serde_json::from_str(&v)?);
+            }
+        }
+        let tags = self.all_tags_by_project()?;
+        let mut stmt = self.conn.prepare(
+            "SELECT id, rel_path, title_override, category, status, manual_cover, is_favorite, favorited_at,
+                    is_archived, archived_at, last_opened_at FROM projects
+             WHERE title_override IS NOT NULL OR category IS NOT NULL OR status IS NOT NULL
+                OR manual_cover IS NOT NULL OR is_favorite = 1 OR is_archived = 1 OR last_opened_at IS NOT NULL
+                OR id IN (SELECT project_id FROM project_tags)
+             ORDER BY rel_path",
+        )?;
+        let rows = stmt.query_map([], |r| {
+            let id: i64 = r.get(0)?;
+            Ok(serde_json::json!({
+                "relPath": r.get::<_, String>(1)?,
+                "titleOverride": r.get::<_, Option<String>>(2)?,
+                "category": r.get::<_, Option<String>>(3)?,
+                "status": r.get::<_, Option<String>>(4)?,
+                "manualCover": r.get::<_, Option<String>>(5)?,
+                "isFavorite": r.get::<_, i64>(6)? != 0,
+                "favoritedAt": r.get::<_, Option<i64>>(7)?,
+                "isArchived": r.get::<_, i64>(8)? != 0,
+                "archivedAt": r.get::<_, Option<i64>>(9)?,
+                "lastOpenedAt": r.get::<_, Option<i64>>(10)?,
+                "tags": tags.get(&id).cloned().unwrap_or_default(),
+            }))
+        })?;
+        let projects: Vec<Value> = rows.collect::<std::result::Result<_, _>>()?;
+        Ok(serde_json::json!({
+            "version": 1,
+            "app": "atelier",
+            "exportedAt": now_ms(),
+            "settings": settings,
+            "projects": projects,
+        }))
+    }
+
     /// Low-level access for the importer (same crate only).
     pub(crate) fn conn_mut(&mut self) -> &mut Connection {
         &mut self.conn
@@ -619,6 +743,43 @@ mod tests {
         db.apply_edit(&[id], &Edit::Title("Folder".into())).unwrap();
         db.apply_edit(&[id], &Edit::Title("   ".into())).unwrap();
         assert_eq!(db.get(id).unwrap().title, "Folder");
+    }
+
+    #[test]
+    fn orphan_relink_moves_edits() {
+        let mut db = Db::open_in_memory().unwrap();
+        db.apply_scan(&[sp("May 2022/Fox", Some(2022), Some(5))]).unwrap();
+        let old = db.id_for_rel_path("May 2022/Fox").unwrap().unwrap();
+        db.apply_edit(&[old], &Edit::Status("Done".into())).unwrap();
+        db.apply_edit(&[old], &Edit::AddTag("animals".into())).unwrap();
+        db.apply_edit(&[old], &Edit::Favorite(true)).unwrap();
+        // The folder moved to another month.
+        db.apply_scan(&[sp("June 2022/Fox", Some(2022), Some(6))]).unwrap();
+
+        let orphans = db.orphans().unwrap();
+        assert_eq!(orphans.len(), 1);
+        let target = orphans[0].suggestion.as_ref().unwrap().id;
+        db.relink(old, target).unwrap();
+
+        let row = db.get(target).unwrap();
+        assert_eq!((row.status.as_str(), row.is_favorite), ("Done", true));
+        assert_eq!(row.tags, vec!["animals".to_string()]);
+        assert!(db.orphans().unwrap().is_empty());
+        assert!(matches!(db.get(old), Err(DbError::NotFound(_))));
+    }
+
+    #[test]
+    fn backup_contains_only_edited_projects() {
+        let mut db = Db::open_in_memory().unwrap();
+        db.apply_scan(&[sp("2025-01/A", Some(2025), Some(1)), sp("2025-01/B", Some(2025), Some(1))]).unwrap();
+        let a = db.id_for_rel_path("2025-01/A").unwrap().unwrap();
+        db.apply_edit(&[a], &Edit::AddTag("x".into())).unwrap();
+        db.set_categories(&["One".into()]).unwrap();
+        let b = db.export_backup().unwrap();
+        assert_eq!(b["version"], 1);
+        assert_eq!(b["projects"].as_array().unwrap().len(), 1);
+        assert_eq!(b["projects"][0]["relPath"], "2025-01/A");
+        assert_eq!(b["settings"]["categories"][0], "One");
     }
 
     #[test]

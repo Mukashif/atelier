@@ -22,6 +22,8 @@ export const api = {
   relink: (orphanId, targetId) => invoke('relink', { orphanId, targetId }),
   forget: (id) => invoke('forget', { id }),
   exportBackup: (path) => invoke('export_backup', { path }),
+  restoreBackup: (path) => invoke('restore_backup', { path }),
+  resetData: (backupTo) => invoke('reset_data', { backupTo }),
 };
 
 /** Small (grid) or large (details) thumbnail URL; `v` busts the cache. */

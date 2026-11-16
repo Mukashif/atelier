@@ -10,6 +10,9 @@
   import FilterMenu from './lib/FilterMenu.svelte';
   import BulkBar from './lib/BulkBar.svelte';
   import ContextMenu from './lib/ContextMenu.svelte';
+  import Dialog from './lib/Dialog.svelte';
+  import { getVersion } from '@tauri-apps/api/app';
+  import { findUpdate, installAndRestart } from './lib/updates.js';
 
   const win = getCurrentWindow();
 
@@ -31,6 +34,25 @@
   let selectedIds = $state([]);
   let ctx = $state(null); // { x, y, p }
   let request = $state(null); // { id, rename, n } — ask the grid to select/rename
+  let update = $state(null); // available update (from the updater plugin)
+  let updateOpen = $state(false);
+  let installing = $state(null); // null | percent | '…'
+  let appVersion = $state('');
+
+  async function checkUpdates(loud = false) {
+    const u = await findUpdate({ loud });
+    if (u) update = u;
+    return u?.version ?? null;
+  }
+  async function install() {
+    installing = '…';
+    try {
+      await installAndRestart(update, (p) => (installing = p ?? '…'));
+    } catch (e) {
+      installing = null;
+      showToast(`Update failed: ${e}`, true);
+    }
+  }
 
   const listView = $derived(view === 'desk' ? 'library' : view);
   const query = $derived({
@@ -106,6 +128,8 @@
     (async () => {
       await loadInfo();
       if (info.root) await loadPrefs();
+      getVersion().then((v) => (appVersion = v)).catch(() => {});
+      api.settings().then((s) => s.checkUpdatesOnLaunch && checkUpdates(false)).catch(() => {});
       view = info.root ? prefs.openOnLaunch : 'library';
       await loadProjects();
     })();
@@ -309,6 +333,9 @@
         <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M4 7h10M18 7h2M4 17h4M12 17h8"></path><circle cx="16" cy="7" r="2"></circle><circle cx="10" cy="17" r="2"></circle></svg>
       </button>
     {/if}
+    {#if update}
+      <button class="chip" onclick={() => (updateOpen = true)}><span class="g"></span>Update ready · {update.version}</button>
+    {/if}
     <span class="sep"></span>
     <button class="icon-btn win" aria-label="Minimise" onclick={() => win.minimize()}><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M5 12h14"></path></svg></button>
     <button class="icon-btn win" aria-label="Maximise" onclick={() => win.toggleMaximize()}><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="5" y="5" width="14" height="14" rx="1"></rect></svg></button>
@@ -324,7 +351,7 @@
   {:else if !info.root}
     <FirstRun bookrack={info.bookrack} onStarted={async () => { await loadInfo(); await loadPrefs(); view = 'library'; await loadProjects(); }} />
   {:else if view === 'settings'}
-    <div class="fill"><Settings toast={showToast} onChanged={async () => { await loadInfo(); await loadPrefs(); }} /></div>
+    <div class="fill"><Settings toast={showToast} onCheckUpdates={async () => { const v = await checkUpdates(true); if (v) updateOpen = true; return v; }} onChanged={async () => { await loadInfo(); await loadPrefs(); }} /></div>
   {:else if view === 'desk'}
     <main class="scroll fill" bind:this={scroller}>
       <Desk
@@ -425,6 +452,22 @@
     </main>
   {/if}
 
+  {#if updateOpen && update}
+    <Dialog title={`Atelier ${update.version} is ready`} onCancel={() => installing == null && (updateOpen = false)}>
+      {#snippet children()}
+        <span class="mono small">{appVersion || update.currentVersion} → {update.version}</span>
+        {#if update.body}<div class="notes">{update.body}</div>{/if}
+        <p class="small muted">Atelier closes, installs and reopens where you left off.</p>
+      {/snippet}
+      {#snippet actions()}
+        <button class="btn" data-autofocus disabled={installing != null} onclick={() => (updateOpen = false)}>Later</button>
+        <button class="btn primary" disabled={installing != null} onclick={install}>
+          {installing == null ? 'Install and restart' : typeof installing === 'number' ? `Downloading ${installing}%` : 'Installing…'}
+        </button>
+      {/snippet}
+    </Dialog>
+  {/if}
+
   {#if ctx}
     <ContextMenu x={ctx.x} y={ctx.y} p={ctx.p} statuses={info.statuses} categories={info.categories} onAction={ctxAction} onClose={() => (ctx = null)} />
   {/if}
@@ -454,6 +497,11 @@
   .search kbd { font-family: var(--font-ui); font-size: 11px; color: var(--text-3); }
   .clear { border: 0; background: var(--line); color: var(--text-2); width: 22px; height: 22px; border-radius: 50%; line-height: 1; }
   .icon-btn.on { background: var(--line); }
+  .chip { height: 30px; padding: 0 12px; display: flex; align-items: center; gap: 8px; border-radius: 999px; border: 1px solid var(--border); background: none; color: var(--text); font-size: 12px; }
+  .chip:hover { border-color: var(--text); }
+  .chip .g { width: 6px; height: 6px; border-radius: 50%; background: var(--success); }
+  .notes { white-space: pre-wrap; padding: 14px 16px; background: var(--bg); border-radius: 8px; max-height: 260px; overflow: auto; }
+  .small { font-size: 13px; }
   .sep { width: 1px; height: 22px; background: var(--line); margin: 0 4px; }
   .win { color: var(--text-2); width: 44px; height: 36px; }
   .win.close:hover { background: #c42b1c; color: #fff; }

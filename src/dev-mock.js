@@ -93,6 +93,10 @@ mockIPC(
       case "open_month_folder": return "November 2025";
       case "plugin:dialog|open": case "plugin:dialog|save": return null;
       case "export_backup": prefs.lastExportAt = Date.now(); return null;
+      case "reset_data": { for (const p of projects) { p.isFavorite = false; p.isArchived = false; p.tags = []; } return projects.length; }
+      case "restore_backup": return { kind: "atelier", restored: 12, missing: 1 };
+      case "plugin:app|version": return "0.1.0";
+      case "plugin:updater|check": return null;
       default: return null;
     }
   },

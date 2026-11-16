@@ -3,8 +3,43 @@
   import { onMount } from 'svelte';
   import { open, save } from '@tauri-apps/plugin-dialog';
   import { api, categoryColor, statusColor } from './api.js';
+  import Dialog from './Dialog.svelte';
 
-  let { onChanged, toast } = $props();
+  let { onChanged, toast, onCheckUpdates } = $props();
+  let confirm = $state(null); // { kind: 'reset' | 'restore', path?, backupFirst }
+  let checking = $state(false);
+  let updateNote = $state('');
+
+  async function pickRestore() {
+    const path = await open({ title: 'Restore a backup', filters: [{ name: 'Atelier or Bookrack backup', extensions: ['atelier', 'bookrack', 'json'] }] });
+    if (typeof path === 'string') confirm = { kind: 'restore', path };
+  }
+  async function doRestore() {
+    const path = confirm.path;
+    confirm = null;
+    run(() => api.restoreBackup(path), (r) => `Restored ${r.restored} projects from ${r.kind === 'bookrack' ? 'a Bookrack backup' : 'the backup'}${r.missing ? ` · ${r.missing} folders not found` : ''} · rescanning`);
+  }
+  async function doReset() {
+    let backupTo = null;
+    if (confirm.backupFirst) {
+      const d = new Date().toISOString().slice(0, 10);
+      backupTo = await save({ title: 'Save a backup before resetting', defaultPath: `atelier-backup-${d}.atelier`, filters: [{ name: 'Atelier backup', extensions: ['atelier'] }] });
+      if (!backupTo) return; // cancelled: keep the dialog open, reset nothing
+    }
+    confirm = null;
+    run(() => api.resetData(backupTo), (n) => `Reset edits on ${n.toLocaleString('en-GB')} projects${backupTo ? ' · backup saved' : ''}`);
+  }
+  async function checkNow() {
+    checking = true;
+    updateNote = '';
+    try {
+      const found = await onCheckUpdates();
+      updateNote = found ? `Version ${found} is available` : `You’re up to date · checked just now`;
+    } catch (e) {
+      updateNote = `Couldn’t check: ${e}`;
+    }
+    checking = false;
+  }
 
   let s = $state(null);
   let orphans = $state([]);
@@ -81,6 +116,31 @@
     scroller?.querySelector(`#s-${id}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
 </script>
+
+{#if confirm?.kind === 'reset'}
+  <Dialog title="Reset library data?" onCancel={() => (confirm = null)}>
+    {#snippet children()}
+      <p><span class="rm">Removed:</span> titles you renamed, statuses, categories, tags, favourites, archive and covers you picked.</p>
+      <p><span class="kp">Kept:</span> your project folders and files, your category and status lists, your settings.</p>
+      <label class="chk"><input type="checkbox" bind:checked={confirm.backupFirst} /> Export a backup first <span class="muted small">(recommended)</span></label>
+    {/snippet}
+    {#snippet actions()}
+      <button class="btn" data-autofocus onclick={() => (confirm = null)}>Cancel</button>
+      <button class="btn danger solid" onclick={doReset}>{confirm.backupFirst ? 'Back up and reset' : 'Reset'}</button>
+    {/snippet}
+  </Dialog>
+{:else if confirm?.kind === 'restore'}
+  <Dialog title="Restore this backup?" onCancel={() => (confirm = null)}>
+    {#snippet children()}
+      <p class="mono small">{confirm.path}</p>
+      <p>Your current edits will be replaced by the ones in the backup. Your project folders are never touched. Export a backup first if you might want today’s edits back.</p>
+    {/snippet}
+    {#snippet actions()}
+      <button class="btn" data-autofocus onclick={() => (confirm = null)}>Cancel</button>
+      <button class="btn primary" onclick={doRestore}>Restore</button>
+    {/snippet}
+  </Dialog>
+{/if}
 
 {#if s}
   <div class="page">
@@ -217,7 +277,17 @@
             <div class="grow"><div>Data folder</div><div class="mono small muted">{s.dataDir}</div></div>
             <button class="btn" onclick={() => api.openSpecial('data')}>Open</button>
           </div>
-          <p class="muted small">Restoring a backup and resetting library data arrive in the next milestone.</p>
+          <div class="card row">
+            <div class="grow"><div>Restore backup</div><div class="muted small">Opens an .atelier or Bookrack .bookrack file. Replaces your current edits.</div></div>
+            <button class="btn" onclick={pickRestore}>Choose file…</button>
+          </div>
+          <div class="card row danger-box">
+            <div class="grow">
+              <div class="danger-t">Reset library data</div>
+              <div class="muted small">Clears every edit Atelier stores: titles, statuses, categories, tags, favourites, archive and covers you picked. Your category and status lists are kept. Project folders and files are never touched.</div>
+            </div>
+            <button class="btn danger" onclick={() => (confirm = { kind: 'reset', backupFirst: true })}>Reset…</button>
+          </div>
         </div>
       </section>
 
@@ -226,7 +296,8 @@
         <div class="ctl">
           <div class="card row">
             <span class="ver display">{s.version}</span>
-            <div class="grow muted small">Automatic updates switch on with the first release.</div>
+            <div class="grow muted small">{updateNote || 'Checks GitHub for a newer signed release.'}</div>
+            <button class="btn" onclick={checkNow} disabled={checking}>{checking ? 'Checking…' : 'Check now'}</button>
           </div>
         </div>
       </section>
@@ -290,4 +361,14 @@
   .switch.on { background: var(--text); }
   .switch.on span { left: 23px; background: var(--on-text); }
   .ver { font-size: 32px; font-stretch: 75%; }
+  .danger-box { border-color: #5a2e28; background: none; }
+  .danger-t { color: #ff8a78; font-weight: 600; }
+  .btn.danger { border-color: var(--danger); color: #ff8a78; }
+  .btn.danger:hover { background: rgba(255, 107, 87, 0.12); }
+  .btn.danger.solid { background: var(--danger); color: var(--on-text); font-weight: 600; }
+  .rm { color: #ff8a78; }
+  .kp { color: var(--success); }
+  p { margin: 0; }
+  .chk { display: flex; align-items: center; gap: 10px; padding: 12px 14px; background: var(--bg); border-radius: 8px; color: var(--text); }
+  .chk input { width: 16px; height: 16px; accent-color: var(--text); }
 </style>

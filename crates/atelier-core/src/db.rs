@@ -82,6 +82,14 @@ impl ProjectRow {
     }
 }
 
+#[derive(Debug, Default, Clone, Copy, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RestoreReport {
+    pub restored: usize,
+    /// Entries whose folder isn't in the library (kept as missing projects).
+    pub missing: usize,
+}
+
 /// A project whose folder wasn't found, with a likely replacement.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -618,6 +626,93 @@ impl Db {
         }))
     }
 
+    /// Clear every edit (titles, statuses, categories, tags, favourites,
+    /// archive, picked covers, last opened) and forget missing projects.
+    /// Settings — including the category and status lists — are kept.
+    pub fn reset_edits(&mut self) -> Result<usize> {
+        let tx = self.conn.transaction()?;
+        let n = tx.execute(
+            "UPDATE projects SET title_override = NULL, category = NULL, status = NULL, manual_cover = NULL,
+               is_favorite = 0, favorited_at = NULL, is_archived = 0, archived_at = NULL, last_opened_at = NULL",
+            [],
+        )?;
+        tx.execute("DELETE FROM project_tags", [])?;
+        tx.execute("DELETE FROM projects WHERE present = 0", [])?;
+        tx.commit()?;
+        Ok(n)
+    }
+
+    /// Restore an `.atelier` backup: replaces settings (except the library
+    /// folder) and every project's edits. Entries whose folder isn't known yet
+    /// are kept as missing projects; a rescan links them up.
+    pub fn restore_backup(&mut self, backup: &Value) -> Result<RestoreReport> {
+        let bad = |m: &str| DbError::Json(serde::de::Error::custom(m.to_string()));
+        if backup.get("version").and_then(Value::as_i64) != Some(1) || backup.get("app").and_then(Value::as_str) != Some("atelier") {
+            return Err(bad("not an Atelier version-1 backup"));
+        }
+        let projects = backup.get("projects").and_then(Value::as_array).ok_or_else(|| bad("projects is missing"))?;
+        let root = self.get_setting("rootFolder")?;
+
+        let tx = self.conn.transaction()?;
+        tx.execute("DELETE FROM settings", [])?;
+        if let Some(settings) = backup.get("settings").and_then(Value::as_object) {
+            for (k, v) in settings {
+                if k == "rootFolder" {
+                    continue;
+                }
+                tx.execute("INSERT INTO settings(key, value) VALUES (?1, ?2)", params![k, serde_json::to_string(v)?])?;
+            }
+        }
+        if let Some(r) = root {
+            tx.execute("INSERT INTO settings(key, value) VALUES ('rootFolder', ?1)", [serde_json::to_string(&r)?])?;
+        }
+        tx.execute(
+            "UPDATE projects SET title_override = NULL, category = NULL, status = NULL, manual_cover = NULL,
+               is_favorite = 0, favorited_at = NULL, is_archived = 0, archived_at = NULL, last_opened_at = NULL",
+            [],
+        )?;
+        tx.execute("DELETE FROM project_tags", [])?;
+        tx.execute("DELETE FROM projects WHERE present = 0", [])?;
+
+        let mut report = RestoreReport::default();
+        for p in projects {
+            let Some(rel) = p.get("relPath").and_then(Value::as_str) else { continue };
+            let s = |k: &str| p.get(k).and_then(Value::as_str).map(str::to_string);
+            let i = |k: &str| p.get(k).and_then(Value::as_i64);
+            let b = |k: &str| p.get(k).and_then(Value::as_bool).unwrap_or(false);
+            let exists = tx
+                .query_row("SELECT id FROM projects WHERE rel_path = ?1", [rel], |r| r.get::<_, i64>(0))
+                .optional()?;
+            let id = match exists {
+                Some(id) => id,
+                None => {
+                    let parts: Vec<&str> = rel.split('/').collect();
+                    let month_folder = parts.first().copied().unwrap_or_default();
+                    let ym = crate::month::parse_month_folder(month_folder);
+                    tx.execute(
+                        "INSERT INTO projects (rel_path, folder_name, month_folder, year, month, present) VALUES (?1, ?2, ?3, ?4, ?5, 0)",
+                        params![rel, parts.last().copied().unwrap_or_default(), month_folder, ym.map(|x| x.0), ym.map(|x| x.1)],
+                    )?;
+                    report.missing += 1;
+                    tx.last_insert_rowid()
+                }
+            };
+            tx.execute(
+                "UPDATE projects SET title_override = ?2, category = ?3, status = ?4, manual_cover = ?5,
+                   is_favorite = ?6, favorited_at = ?7, is_archived = ?8, archived_at = ?9, last_opened_at = ?10
+                 WHERE id = ?1",
+                params![id, s("titleOverride"), s("category"), s("status"), s("manualCover"), b("isFavorite") as i64,
+                        i("favoritedAt"), b("isArchived") as i64, i("archivedAt"), i("lastOpenedAt")],
+            )?;
+            for t in p.get("tags").and_then(Value::as_array).into_iter().flatten().filter_map(Value::as_str) {
+                tx.execute("INSERT OR IGNORE INTO project_tags(project_id, tag) VALUES (?1, ?2)", params![id, t])?;
+            }
+            report.restored += 1;
+        }
+        tx.commit()?;
+        Ok(report)
+    }
+
     /// Low-level access for the importer (same crate only).
     pub(crate) fn conn_mut(&mut self) -> &mut Connection {
         &mut self.conn
@@ -780,6 +875,33 @@ mod tests {
         assert_eq!(b["projects"].as_array().unwrap().len(), 1);
         assert_eq!(b["projects"][0]["relPath"], "2025-01/A");
         assert_eq!(b["settings"]["categories"][0], "One");
+    }
+
+    #[test]
+    fn backup_round_trip_and_reset() {
+        let mut db = Db::open_in_memory().unwrap();
+        db.set_root_folder(Path::new("E:/Lib")).unwrap();
+        db.apply_scan(&[sp("2025-01/A", Some(2025), Some(1)), sp("2025-01/B", Some(2025), Some(1))]).unwrap();
+        let a = db.id_for_rel_path("2025-01/A").unwrap().unwrap();
+        db.apply_edit(&[a], &Edit::Status("Done".into())).unwrap();
+        db.apply_edit(&[a], &Edit::AddTag("x".into())).unwrap();
+        db.apply_edit(&[a], &Edit::Favorite(true)).unwrap();
+        db.set_categories(&["One".into(), "Two".into()]).unwrap();
+        let backup = db.export_backup().unwrap();
+
+        assert_eq!(db.reset_edits().unwrap(), 2);
+        let row = db.get(a).unwrap();
+        assert!(!row.is_favorite && row.tags.is_empty());
+        assert_eq!(db.categories().unwrap(), ["One", "Two"], "reset keeps the lists");
+
+        let mut extra = backup.clone();
+        extra["projects"].as_array_mut().unwrap().push(serde_json::json!({ "relPath": "2024-05/Gone", "isArchived": true }));
+        let report = db.restore_backup(&extra).unwrap();
+        assert_eq!((report.restored, report.missing), (2, 1));
+        let row = db.get(a).unwrap();
+        assert_eq!((row.status.as_str(), row.is_favorite, row.tags.clone()), ("Done", true, vec!["x".to_string()]));
+        assert_eq!(db.root_folder().unwrap(), Some(PathBuf::from("E:/Lib")), "restore keeps this PC's library folder");
+        assert!(db.restore_backup(&serde_json::json!({ "version": 2 })).is_err());
     }
 
     #[test]

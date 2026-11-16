@@ -345,6 +345,52 @@ fn export_backup(state: State<'_, Shared>, path: String) -> Result<(), String> {
     db.set_setting("lastExportAt", &serde_json::json!(now_ms())).map_err(err)
 }
 
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct RestoreResult {
+    kind: &'static str,
+    restored: usize,
+    missing: usize,
+}
+
+/// Restore an `.atelier` backup, or import a Bookrack `.bookrack` backup.
+/// Replaces current edits, then rescans.
+#[tauri::command]
+fn restore_backup(app: AppHandle, state: State<'_, Shared>, path: String) -> Result<RestoreResult, String> {
+    let raw = std::fs::read_to_string(&path).map_err(err)?;
+    let v: serde_json::Value = serde_json::from_str(&raw).map_err(|_| "That file isn't a backup Atelier can read.".to_string())?;
+    let result = if v.get("app").and_then(|a| a.as_str()) == Some("atelier") {
+        let report = state.db.lock().map_err(err)?.restore_backup(&v).map_err(err)?;
+        RestoreResult { kind: "atelier", restored: report.restored, missing: report.missing }
+    } else {
+        let data = import::load_backup(Path::new(&path)).map_err(err)?;
+        let mut db = state.db.lock().map_err(err)?;
+        let root = db.root_folder().map_err(err)?.ok_or("choose a library folder first")?;
+        db.reset_edits().map_err(err)?;
+        let report = import::apply(&mut db, &data, &root).map_err(err)?;
+        RestoreResult { kind: "bookrack", restored: report.imported, missing: report.orphans }
+    };
+    start_rescan(app, state.inner().clone(), None);
+    Ok(result)
+}
+
+/// Clear every edit. If `backup_to` is given, export a backup there first;
+/// nothing is cleared if that export fails.
+#[tauri::command]
+fn reset_data(app: AppHandle, state: State<'_, Shared>, backup_to: Option<String>) -> Result<usize, String> {
+    let mut db = state.db.lock().map_err(err)?;
+    if let Some(path) = backup_to {
+        let backup = db.export_backup().map_err(err)?;
+        std::fs::write(&path, serde_json::to_string_pretty(&backup).map_err(err)?)
+            .map_err(|e| format!("Backup failed, nothing was reset: {e}"))?;
+        db.set_setting("lastExportAt", &serde_json::json!(now_ms())).map_err(err)?;
+    }
+    let n = db.reset_edits().map_err(err)?;
+    drop(db);
+    let _ = app.emit("library-changed", ());
+    Ok(n)
+}
+
 // --------------------------------------------------------- background work
 
 /// Scan → merge → (import) → notify UI → thumbnails → notify UI. One at a time.
@@ -465,6 +511,8 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_process::init())
         .setup(|app| {
             let data_dir = app.path().app_data_dir()?;
             let cache_dir = app.path().app_cache_dir()?;
@@ -508,7 +556,9 @@ pub fn run() {
             orphans,
             relink,
             forget,
-            export_backup
+            export_backup,
+            restore_backup,
+            reset_data
         ])
         .run(tauri::generate_context!())
         .expect("error while running Atelier");

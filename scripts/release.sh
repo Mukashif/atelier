@@ -17,7 +17,8 @@ NOTES="${2:-}"
 DRY_RUN="${ATELIER_DRY_RUN:-0}"
 [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "usage: scripts/release.sh <x.y.z> \"notes\"" >&2; exit 2; }
 
-[[ -f .env.release ]] && set -a && source .env.release && set +a
+# Strip CR so a .env.release saved with Windows line endings still works.
+[[ -f .env.release ]] && set -a && source <(tr -d '' < .env.release) && set +a
 if [[ -n "${TAURI_SIGNING_PRIVATE_KEY_PATH:-}" && -z "${TAURI_SIGNING_PRIVATE_KEY:-}" ]]; then
   export TAURI_SIGNING_PRIVATE_KEY="$(cat "$TAURI_SIGNING_PRIVATE_KEY_PATH")"
 fi

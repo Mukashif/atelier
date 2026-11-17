@@ -400,7 +400,7 @@
             <button class:on={sort === 'newest'} onclick={() => (sort = 'newest')}>{view === 'favorites' ? 'Newest' : 'Newest month first'}</button>
             <button class:on={sort === 'name'} onclick={() => (sort = 'name')}>Name</button>
           </div>
-          <button class="btn small" onclick={() => { selectMode = true; selectedIds = []; }}>Select</button>
+          <button class="pillbtn" onclick={() => { selectMode = true; selectedIds = []; }}>Select</button>
         </div>
       </div>
     {/if}
@@ -518,8 +518,13 @@
   .status { font-size: 13px; color: var(--text-2); }
   .muted { color: var(--text-3); }
   .right { margin-left: auto; display: flex; align-items: center; gap: 20px; }
-  .sort { display: flex; gap: 18px; font-size: 13px; align-items: baseline; }
-  .sort button { padding: 0 0 4px; border: 0; background: none; color: var(--text-2); }
+  .sort { display: flex; gap: 18px; font-size: 13px; align-items: center; }
+  .sort > * { padding: 4px 0; line-height: 18px; }
+  .sort button { border: 0; background: none; color: var(--text-2); }
+  .sort button:hover { color: var(--text); }
+  /* Same shape as the filter pills on the left of the toolbar. */
+  .pillbtn { height: 34px; padding: 0 16px; border-radius: 999px; border: 1px solid var(--border); background: transparent; color: var(--text); font-size: 13px; }
+  .pillbtn:hover { border-color: var(--text); }
   .sort button.on { color: var(--text); font-weight: 600; box-shadow: inset 0 -2px 0 var(--text); }
   .fill { flex: 1; min-height: 0; }
   .empty { max-width: 560px; margin: 160px auto; text-align: center; display: flex; flex-direction: column; align-items: center; gap: 14px; color: var(--text-2); }

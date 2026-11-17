@@ -4,7 +4,10 @@
   let el = $state();
 
   function onDocDown(e) {
-    if (open && el && !el.contains(e.target) && !e.target.closest?.('[data-menu-trigger]')) open = false;
+    // Ignore only this menu's own trigger (a sibling in the same wrapper), so
+    // pressing another menu's trigger closes this one.
+    const own = e.target.closest?.('[data-menu-trigger]');
+    if (open && el && !el.contains(e.target) && !(own && el.parentElement?.contains(own))) open = false;
   }
   function onKey(e) {
     if (open && e.key === 'Escape') {

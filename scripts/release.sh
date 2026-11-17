@@ -80,7 +80,7 @@ fi
 
 echo "==> Committing, tagging, publishing"
 git add package.json src-tauri/tauri.conf.json Cargo.toml Cargo.lock
-git commit -m "Release $VERSION"
+git diff --cached --quiet || git commit -m "Release $VERSION"
 git tag -a "v$VERSION" -m "Atelier $VERSION"
 git push origin main "v$VERSION"
 gh release create "v$VERSION" "$INSTALLER" "$SIG" "$BUNDLE/latest.json" \

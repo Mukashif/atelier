@@ -324,8 +324,9 @@ explanation on the left and controls on the right.
 | `Ctrl A` | Select all (select mode) |
 | `Esc` | Close menu/panel, clear search and selection, leave select mode |
 
-Shortcuts other than Esc are ignored while typing. Mouse back/forward move through
-view history.
+Shortcuts other than Esc are ignored while typing. Mouse back/forward (and
+`Alt ←` / `Alt →`) move through view history; going back restores that view's
+filters.
 
 ---
 

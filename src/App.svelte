@@ -1,5 +1,5 @@
 <script>
-  import { onMount } from 'svelte';
+  import { onMount, untrack } from 'svelte';
   import { getCurrentWindow } from '@tauri-apps/api/window';
   import { open as openDialog } from '@tauri-apps/plugin-dialog';
   import { api, listen, categoryColor, statusColor } from './lib/api.js';
@@ -275,8 +275,48 @@
     request = { id, rename: false, n: Date.now() };
   }
 
+  // ---- view history (SPEC §6.13: mouse back/forward). Every view change is
+  // recorded, whatever caused it; each entry remembers that view's filters.
+  let hist = [];
+  let histAt = -1;
+  let travelling = false;
+  $effect(() => {
+    const v = view;
+    if (!v) return;
+    untrack(() => {
+      if (travelling) { travelling = false; return; }
+      if (hist[histAt]?.view === v) return;
+      hist = [...hist.slice(Math.max(0, histAt - 48), histAt + 1), { view: v, filters }];
+      histAt = hist.length - 1;
+    });
+  });
+  $effect(() => {
+    const f = filters;
+    untrack(() => { if (hist[histAt]) hist[histAt].filters = f; });
+  });
+  function travel(step) {
+    const entry = hist[histAt + step];
+    if (!entry || !view) return;
+    histAt += step;
+    travelling = entry.view !== view;
+    filters = entry.filters;
+    search = '';
+    debounced = '';
+    setView(entry.view);
+  }
+  function onMouseNav(e) {
+    // Mouse buttons 3 and 4 are the side back/forward buttons.
+    if (e.button !== 3 && e.button !== 4) return;
+    e.preventDefault();
+    if (e.type === 'mouseup') travel(e.button === 3 ? -1 : 1);
+  }
+
   function onGlobalKey(e) {
     const typing = e.target.closest?.('input, textarea, select');
+    if (e.altKey && (e.key === 'ArrowLeft' || e.key === 'ArrowRight') && !typing) {
+      e.preventDefault();
+      return travel(e.key === 'ArrowLeft' ? -1 : 1);
+    }
     if ((e.ctrlKey || e.metaKey) && (e.key === 'k' || e.key === 'f')) {
       e.preventDefault();
       if (view === 'desk' || view === 'settings') view = 'library';
@@ -305,7 +345,7 @@
   const grouped = $derived(prefs.groupByMonth && loadedSort !== 'name' && view !== 'favorites');
 </script>
 
-<svelte:window onkeydown={onGlobalKey} />
+<svelte:window onkeydown={onGlobalKey} onmousedown={onMouseNav} onmouseup={onMouseNav} />
 
 <div class="app">
   <header data-tauri-drag-region>

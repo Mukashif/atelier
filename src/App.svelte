@@ -36,6 +36,25 @@
   let request = $state(null); // { id, rename, n } — ask the grid to select/rename
   let update = $state(null); // available update (from the updater plugin)
   let updateOpen = $state(false);
+  let keysOpen = $state(false);
+  const SHORTCUTS = [
+    ['Anywhere', [
+      [['Ctrl', 'K'], 'Search'],
+      [['Ctrl', ','], 'Settings'],
+      [['Alt', '←'], 'Back (or the mouse back button)'],
+      [['Alt', '→'], 'Forward'],
+      [['?'], 'This list'],
+    ]],
+    ['Covers', [
+      [['←', '→', '↑', '↓'], 'Move between covers'],
+      [['Enter'], 'Open folder'],
+      [['F2'], 'Rename'],
+      [['F'], 'Favourite on / off'],
+      [['Del'], 'Archive'],
+      [['Ctrl', 'A'], 'Select all (in select mode)'],
+      [['Esc'], 'Close, clear search or selection, leave select mode'],
+    ]],
+  ];
   let installing = $state(null); // null | percent | '…'
   let appVersion = $state('');
 
@@ -317,6 +336,11 @@
       e.preventDefault();
       return travel(e.key === 'ArrowLeft' ? -1 : 1);
     }
+    if (e.key === '?' && !typing && !e.ctrlKey && !e.altKey && !e.metaKey) {
+      e.preventDefault();
+      keysOpen = !keysOpen;
+      return;
+    }
     if ((e.ctrlKey || e.metaKey) && (e.key === 'k' || e.key === 'f')) {
       e.preventDefault();
       if (view === 'desk' || view === 'settings') view = 'library';
@@ -508,6 +532,25 @@
     </Dialog>
   {/if}
 
+  {#if keysOpen}
+    <Dialog title="Keyboard shortcuts" width={520} labelId="keys-title" onCancel={() => (keysOpen = false)}>
+      {#snippet children()}
+        {#each SHORTCUTS as [group, rows]}
+          <div class="kgroup">{group}</div>
+          {#each rows as [keys, what]}
+            <div class="krow">
+              <span class="keys">{#each keys as k}<kbd>{k}</kbd>{/each}</span>
+              <span>{what}</span>
+            </div>
+          {/each}
+        {/each}
+      {/snippet}
+      {#snippet actions()}
+        <button class="btn" data-autofocus onclick={() => (keysOpen = false)}>Close</button>
+      {/snippet}
+    </Dialog>
+  {/if}
+
   {#if ctx}
     <ContextMenu x={ctx.x} y={ctx.y} p={ctx.p} statuses={info.statuses} categories={info.categories} onAction={ctxAction} onClose={() => (ctx = null)} />
   {/if}
@@ -542,6 +585,14 @@
   .chip .g { width: 6px; height: 6px; border-radius: 50%; background: var(--success); }
   .notes { white-space: pre-wrap; padding: 14px 16px; background: var(--bg); border-radius: 8px; max-height: 260px; overflow: auto; }
   .small { font-size: 13px; }
+  .kgroup { margin-top: 8px; font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-3); }
+  .krow { display: grid; grid-template-columns: 170px 1fr; align-items: center; gap: 12px; min-height: 30px; }
+  .keys { display: flex; gap: 4px; }
+  kbd {
+    min-width: 26px; height: 24px; padding: 0 7px; display: inline-flex; align-items: center; justify-content: center;
+    border: 1px solid var(--border); border-bottom-width: 2px; border-radius: 5px; background: var(--bg);
+    font-family: 'JetBrains Mono', monospace; font-size: 12px; color: var(--text);
+  }
   .sep { width: 1px; height: 22px; background: var(--line); margin: 0 4px; }
   .win { color: var(--text-2); width: 44px; height: 36px; }
   .win.close:hover { background: #c42b1c; color: #fff; }

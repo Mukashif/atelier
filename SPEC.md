@@ -316,6 +316,7 @@ explanation on the left and controls on the right.
 |---|---|
 | `Ctrl K`, `Ctrl F` | Focus search |
 | `Ctrl ,` | Settings |
+| `?` | Keyboard shortcuts sheet |
 | `← → ↑ ↓` | Move between covers |
 | `Enter` | Open folder |
 | `F2` | Rename |

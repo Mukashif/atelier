@@ -120,6 +120,8 @@
   }
 
   function onKey(e) {
+    // Alt+arrows are history (App); a dialog on top owns the keyboard.
+    if (e.altKey || document.querySelector('[aria-modal="true"]')) return;
     if (selectMode && !['a', 'A'].includes(e.key)) return;
     const typing = e.target.closest?.('input, textarea, select, [contenteditable]');
     if (typing) return;

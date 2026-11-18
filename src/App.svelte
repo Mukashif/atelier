@@ -11,6 +11,7 @@
   import BulkBar from './lib/BulkBar.svelte';
   import ContextMenu from './lib/ContextMenu.svelte';
   import Dialog from './lib/Dialog.svelte';
+  import { coverSize, setStep, STEPS } from './lib/coverSize.svelte.js';
   import { getVersion } from '@tauri-apps/api/app';
   import { findUpdate, installAndRestart } from './lib/updates.js';
 
@@ -52,6 +53,9 @@
       [['F'], 'Favourite on / off'],
       [['Del'], 'Archive'],
       [['Ctrl', 'A'], 'Select all (in select mode)'],
+      [['Ctrl', 'Scroll'], 'Bigger / smaller covers'],
+      [['Ctrl', '=', '−'], 'Bigger / smaller covers'],
+      [['Ctrl', '0'], 'Default cover size'],
       [['Esc'], 'Close, clear search or selection, leave select mode'],
     ]],
   ];
@@ -460,6 +464,15 @@
           </span>
         {/if}
         <div class="right">
+          <div class="size" role="group" aria-label="Cover size" title="Cover size (Ctrl + scroll, Ctrl = / −)">
+            <button aria-label="Smaller covers" disabled={coverSize.step === 0} onclick={() => setStep(coverSize.step - 1)}>
+              <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><rect x="3.5" y="2.5" width="5" height="7" rx="0.8" fill="none" stroke="currentColor" stroke-width="1.2" /></svg>
+            </button>
+            <input type="range" min="0" max={STEPS.length - 1} step="1" value={coverSize.step} aria-label="Cover size" oninput={(e) => setStep(Number(e.currentTarget.value))} style:--pct={`${(coverSize.step / (STEPS.length - 1)) * 100}%`} />
+            <button aria-label="Bigger covers" disabled={coverSize.step === STEPS.length - 1} onclick={() => setStep(coverSize.step + 1)}>
+              <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><rect x="3.5" y="1.5" width="9" height="13" rx="1" fill="none" stroke="currentColor" stroke-width="1.3" /></svg>
+            </button>
+          </div>
           <div class="sort" role="group" aria-label="Sort">
             <span class="muted">Sort</span>
             <button class:on={sort === 'newest'} onclick={() => (sort = 'newest')}>{view === 'favorites' ? 'Newest' : 'Newest month first'}</button>
@@ -610,6 +623,15 @@
   .status { font-size: 13px; color: var(--text-2); }
   .muted { color: var(--text-3); }
   .right { margin-left: auto; display: flex; align-items: center; gap: 20px; }
+  .size { display: flex; align-items: center; gap: 6px; }
+  .size button { width: 26px; height: 26px; display: flex; align-items: center; justify-content: center; border: 0; border-radius: 6px; background: none; color: var(--text-2); }
+  .size button:hover:not(:disabled) { color: var(--text); background: var(--hover); }
+  .size button:disabled { color: var(--text-4); }
+  .size input { -webkit-appearance: none; appearance: none; width: 96px; height: 18px; background: none; margin: 0; cursor: pointer; }
+  .size input::-webkit-slider-runnable-track { height: 2px; border-radius: 2px; background: linear-gradient(to right, var(--text-2) var(--pct), var(--border) var(--pct)); }
+  .size input::-webkit-slider-thumb { -webkit-appearance: none; width: 12px; height: 12px; margin-top: -5px; border-radius: 50%; background: var(--text); border: 0; }
+  .size input:focus-visible { outline: none; }
+  .size input:focus-visible::-webkit-slider-thumb { box-shadow: 0 0 0 3px var(--bg), 0 0 0 4px var(--text); }
   .sort { display: flex; gap: 18px; font-size: 13px; align-items: center; }
   .sort > * { padding: 4px 0; line-height: 18px; }
   .sort button { border: 0; background: none; color: var(--text-2); }

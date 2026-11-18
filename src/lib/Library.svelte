@@ -3,6 +3,7 @@
   // Month rows: a label column that stays in view + a wrapping grid. The
   // details panel is inserted as an extra row under the clicked cover's row.
   import { untrack } from 'svelte';
+  import { coverSize, setStep, STEPS, DEFAULT_STEP, FAVORITES_SCALE } from './coverSize.svelte.js';
   import Cover from './Cover.svelte';
   import Details from './Details.svelte';
   import { statusColor } from './api.js';
@@ -56,12 +57,56 @@
   }
 
   const GAP = 22;
-  const minWidth = $derived(view === 'favorites' ? 210 : 150);
+  const minWidth = $derived(STEPS[coverSize.step] * (view === 'favorites' ? FAVORITES_SCALE : 1));
 
   let selectedId = $state(null);
   let renameRequest = $state(0);
   let gridWidth = $state(0);
   const cols = $derived(Math.max(1, Math.floor((gridWidth + GAP) / (minWidth + GAP))));
+  // Past the small thumbnail's 300px, ask for the 600px one (made on demand).
+  const dpr = window.devicePixelRatio || 1;
+  const tileWidth = $derived((gridWidth - (cols - 1) * GAP) / cols);
+  const large = $derived(tileWidth * dpr > 320);
+
+  // ---- cover size: Ctrl + wheel, Ctrl + = / − / 0 (the toolbar control lives in App)
+  let root = $state();
+  let wheelAcc = 0;
+  function onWheel(e) {
+    if (!e.ctrlKey || document.querySelector('[aria-modal="true"]')) return;
+    e.preventDefault();
+    wheelAcc += e.deltaY;
+    if (Math.abs(wheelAcc) < 60) return;
+    setStep(coverSize.step + (wheelAcc < 0 ? 1 : -1));
+    wheelAcc = 0;
+  }
+  $effect(() => {
+    window.addEventListener('wheel', onWheel, { passive: false });
+    return () => window.removeEventListener('wheel', onWheel);
+  });
+
+  // Keep the selected cover (or the one at the top of the view) in place
+  // while the grid reflows to a new size.
+  let anchorEl = null;
+  let anchorTop = 0;
+  $effect.pre(() => {
+    coverSize.step;
+    untrack(() => {
+      const sc = root?.closest('.scroll');
+      if (!sc) return;
+      const top = sc.getBoundingClientRect().top;
+      const sel = selectedId != null ? document.querySelector(`[data-id="${selectedId}"]`) : null;
+      anchorEl = sel || [...sc.querySelectorAll('.tile')].find((t) => t.getBoundingClientRect().bottom > top) || null;
+      anchorTop = anchorEl ? anchorEl.getBoundingClientRect().top - top : 0;
+    });
+  });
+  $effect(() => {
+    coverSize.step;
+    const el = anchorEl;
+    anchorEl = null;
+    const sc = el?.isConnected ? el.closest('.scroll') : null;
+    if (!sc) return;
+    sc.scrollTop += el.getBoundingClientRect().top - sc.getBoundingClientRect().top - anchorTop;
+  });
 
   // Group consecutive projects (already sorted by the core) into months.
   const groups = $derived.by(() => {
@@ -122,6 +167,11 @@
   function onKey(e) {
     // Alt+arrows are history (App); a dialog on top owns the keyboard.
     if (e.altKey || document.querySelector('[aria-modal="true"]')) return;
+    if ((e.ctrlKey || e.metaKey) && !e.target.closest?.('input, textarea, select, [contenteditable]')) {
+      const d = { '=': 1, '+': 1, '-': -1, '_': -1 }[e.key];
+      if (d) { e.preventDefault(); setStep(coverSize.step + d); return; }
+      if (e.key === '0') { e.preventDefault(); setStep(DEFAULT_STEP); return; }
+    }
     if (selectMode && !['a', 'A'].includes(e.key)) return;
     const typing = e.target.closest?.('input, textarea, select, [contenteditable]');
     if (typing) return;
@@ -148,7 +198,7 @@
 
 <svelte:window onkeydown={onKey} />
 
-<div class="months" class:archive={view === 'archive'}>
+<div class="months" bind:this={root} class:archive={view === 'archive'}>
   {#each groups as g (g.key)}
     <section class="month" class:wall={!g.label}>
       {#if g.label}
@@ -183,7 +233,7 @@
                 oncontextmenu={(e) => { e.preventDefault(); if (!selectMode) onContext(e, p); }}
               >
                 <span class="cover-wrap">
-                  <Cover {p} v={versions[p.id] ?? 0} {busy} />
+                  <Cover {p} v={versions[p.id] ?? 0} {busy} {large} />
                   {#if selectMode}<span class="check" class:on={selectedSet.has(p.id)} aria-hidden="true">✓</span>{/if}
                 </span>
                 <span class="t">{p.title}</span>

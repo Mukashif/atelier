@@ -192,7 +192,7 @@ dependencies = [
 
 [[package]]
 name = "atelier"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "atelier-core",
  "base64 0.22.1",
@@ -211,7 +211,7 @@ dependencies = [
 
 [[package]]
 name = "atelier-core"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "image",
  "log",

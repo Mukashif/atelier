@@ -5,7 +5,9 @@
 //! - [`import`]: bring edits across from Bookrack.
 //! - [`thumbs`]: cover thumbnails in the app cache.
 //! - [`month`]: month-folder name parsing.
+//! - [`activity`]: recently changed files, for the income tracker sync.
 
+pub mod activity;
 pub mod db;
 pub mod import;
 pub mod month;

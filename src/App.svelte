@@ -166,6 +166,7 @@
       listen('progress', (e) => (progress = e.payload)),
       listen('busy', (e) => (busy = e.payload)),
       listen('scan-error', (e) => showToast(String(e.payload), true)),
+      listen('sync-status', (e) => { if (e.payload.state === 'error') showToast(`Income tracker sync: ${e.payload.message}`, true); }),
     ];
     return () => offs.forEach((p) => p.then((off) => off()));
   });

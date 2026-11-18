@@ -24,6 +24,10 @@ export const api = {
   exportBackup: (path) => invoke('export_backup', { path }),
   restoreBackup: (path) => invoke('restore_backup', { path }),
   resetData: (backupTo) => invoke('reset_data', { backupTo }),
+  syncSettings: () => invoke('get_sync_settings'),
+  /** key: a new key, '' to remove it, or null to keep the saved one. */
+  setSyncSettings: (url, key, autoSync) => invoke('set_sync_settings', { url, key, autoSync }),
+  syncNow: () => invoke('sync_now'),
 };
 
 /** Small (grid) or large (details) thumbnail URL; `v` busts the cache. */

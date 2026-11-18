@@ -1,8 +1,8 @@
 <script>
   // Settings (SPEC §6.8): one scrolling page, section list on the left.
-  import { onMount } from 'svelte';
+  import { onMount, onDestroy } from 'svelte';
   import { open, save } from '@tauri-apps/plugin-dialog';
-  import { api, categoryColor, statusColor } from './api.js';
+  import { api, categoryColor, statusColor, listen } from './api.js';
   import Dialog from './Dialog.svelte';
 
   let { onChanged, toast, onCheckUpdates } = $props();
@@ -48,9 +48,55 @@
   let editing = $state(null); // { kind, old, value }
 
   async function load() {
-    [s, orphans] = await Promise.all([api.settings(), api.orphans()]);
+    [s, orphans, sync] = await Promise.all([api.settings(), api.orphans(), api.syncSettings()]);
+    syncUrl = sync.url;
   }
   onMount(load);
+
+  // ---- income tracker sync
+  let sync = $state(null); // { url, hasKey, autoSync, lastSyncAt }
+  let syncUrl = $state('');
+  let syncKey = $state('');
+  let syncState = $state(null); // { state: 'running' | 'done' | 'error', message?, outcome? }
+  let unlisten = null;
+  onMount(async () => {
+    unlisten = await listen('sync-status', async (e) => {
+      syncState = e.payload;
+      if (e.payload.state !== 'running') sync = await api.syncSettings();
+    });
+  });
+  onDestroy(() => unlisten?.());
+
+  async function saveSync(autoSync = sync.autoSync, key = syncKey.trim() || null) {
+    try {
+      await api.setSyncSettings(syncUrl, key, autoSync);
+      const added = Boolean(key);
+      syncKey = '';
+      sync = await api.syncSettings();
+      syncUrl = sync.url;
+      if (added) {
+        toast('Sync key saved · syncing now');
+        await api.syncNow();
+      }
+    } catch (e) {
+      toast(String(e), true);
+    }
+  }
+  async function syncNow() {
+    try {
+      await api.syncNow();
+    } catch (e) {
+      toast(String(e), true);
+    }
+  }
+  function syncLine() {
+    if (syncState?.state === 'running') return 'Syncing…';
+    if (syncState?.state === 'error') return `Last sync failed: ${syncState.message}`;
+    const o = syncState?.outcome;
+    if (o) return `Synced just now · ${o.projects} ${o.projects === 1 ? 'project' : 'projects'} with new work · ${o.covers} covers · ${o.inboxOpen} waiting in the Inbox`;
+    if (!sync?.lastSyncAt) return sync?.hasKey ? 'Not synced yet' : 'Not connected';
+    return `Last synced ${new Date(sync.lastSyncAt).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}`;
+  }
 
   async function run(fn, okMsg) {
     try {
@@ -107,7 +153,7 @@
 
   const sections = [
     ['library', 'Library folder'], ['categories', 'Categories'], ['statuses', 'Statuses'],
-    ['prefs', 'Preferences'], ['data', 'Backup & data'], ['updates', 'Updates'],
+    ['prefs', 'Preferences'], ['sync', 'Income tracker'], ['data', 'Backup & data'], ['updates', 'Updates'],
   ];
   let active = $state('library');
   let scroller = $state();
@@ -266,6 +312,40 @@
         </div>
       </section>
 
+      <section id="s-sync">
+        <div class="about">
+          <h2 class="display">Income tracker</h2>
+          <p>Sends your income tracker the projects you worked on (their changed file names and dates) and your “Book Covers” projects with their thumbnails. New work lands in its Inbox; covers on its Covers page. Atelier never changes your folders.</p>
+        </div>
+        <div class="ctl">
+          <div class="card stackc">
+            <label class="fieldc">
+              <span class="muted small">Address</span>
+              <input class="txt mono" bind:value={syncUrl} onblur={() => syncUrl !== sync?.url && saveSync()} spellcheck="false" />
+            </label>
+            <label class="fieldc">
+              <span class="muted small">Sync key {#if sync?.hasKey}<span class="ok-t">· saved</span>{/if}</span>
+              <div class="row">
+                <input class="txt mono grow" type="password" bind:value={syncKey} placeholder={sync?.hasKey ? 'Paste a new key to replace it' : 'Paste the key from the income tracker’s Settings'} autocomplete="off" spellcheck="false"
+                  onkeydown={(e) => e.key === 'Enter' && syncKey.trim() && saveSync()} />
+                <button class="btn primary" disabled={!syncKey.trim()} onclick={() => saveSync()}>Save key</button>
+              </div>
+            </label>
+          </div>
+          <div class="card row">
+            <div class="grow"><div>{sync?.hasKey ? 'Connected' : 'Not connected'}</div><div class="muted small" class:err-t={syncState?.state === 'error'} aria-live="polite">{syncLine()}</div></div>
+            {#if sync?.hasKey}
+              <button class="btn" onclick={() => saveSync(sync.autoSync, '')}>Disconnect</button>
+            {/if}
+            <button class="btn primary" disabled={!sync?.hasKey || syncState?.state === 'running'} onclick={syncNow}>{syncState?.state === 'running' ? 'Syncing…' : 'Sync now'}</button>
+          </div>
+          <div class="pref">
+            <div class="grow"><div>Sync after every scan</div><div class="muted small">Atelier scans when it opens and when you press Rescan</div></div>
+            <button class="switch" role="switch" aria-checked={sync?.autoSync} aria-label="Sync after every scan" class:on={sync?.autoSync} onclick={() => saveSync(!sync.autoSync, null)}><span></span></button>
+          </div>
+        </div>
+      </section>
+
       <section id="s-data">
         <div class="about"><h2 class="display">Backup &amp; data</h2><p>Your edits — titles, statuses, categories, tags, favourites — live in Atelier’s own data folder, not in your projects.</p></div>
         <div class="ctl">
@@ -292,7 +372,7 @@
       </section>
 
       <section id="s-updates">
-        <div class="about"><h2 class="display">Updates</h2><p>Atelier will check GitHub for new versions. Nothing else ever leaves your PC.</p></div>
+        <div class="about"><h2 class="display">Updates</h2><p>Atelier will check GitHub for new versions. The only other thing that leaves your PC is the income tracker sync, once you connect it.</p></div>
         <div class="ctl">
           <div class="card row">
             <span class="ver display">{s.version}</span>
@@ -371,4 +451,10 @@
   p { margin: 0; }
   .chk { display: flex; align-items: center; gap: 10px; padding: 12px 14px; background: var(--bg); border-radius: 8px; color: var(--text); }
   .chk input { width: 16px; height: 16px; accent-color: var(--text); }
+  .stackc { display: flex; flex-direction: column; gap: 14px; }
+  .fieldc { display: flex; flex-direction: column; gap: 6px; }
+  .txt { height: 38px; padding: 0 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); outline: none; font-size: 13px; min-width: 0; }
+  .txt:focus { border-color: var(--text-2); }
+  .ok-t { color: var(--success); }
+  .err-t { color: #ff8a78; }
 </style>

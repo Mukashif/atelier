@@ -2,6 +2,7 @@
 //! background work. All logic lives in `atelier-core`; this file wires it up.
 
 mod bookrack;
+mod sync;
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -20,6 +21,7 @@ pub struct AppState {
     data_dir: PathBuf,
     cache_dir: PathBuf,
     busy: AtomicBool,
+    syncing: AtomicBool,
 }
 
 type Shared = Arc<AppState>;
@@ -391,6 +393,81 @@ fn reset_data(app: AppHandle, state: State<'_, Shared>, backup_to: Option<String
     Ok(n)
 }
 
+// ------------------------------------------------------- income tracker sync
+
+#[tauri::command]
+fn get_sync_settings(state: State<'_, Shared>) -> Result<sync::SyncSettings, String> {
+    let db = state.db.lock().map_err(err)?;
+    sync::settings(&db)
+}
+
+/// Save the address, the key (only when one is given; "" removes it) and auto-sync.
+#[tauri::command]
+fn set_sync_settings(state: State<'_, Shared>, url: String, key: Option<String>, auto_sync: bool) -> Result<(), String> {
+    let url = url.trim().trim_end_matches('/').to_string();
+    if !(url.starts_with("https://") || url.starts_with("http://localhost") || url.starts_with("http://127.0.0.1")) {
+        return Err("The address should start with https://".into());
+    }
+    let db = state.db.lock().map_err(err)?;
+    db.set_setting("syncUrl", &serde_json::json!(url)).map_err(err)?;
+    db.set_setting("syncAfterScan", &serde_json::json!(auto_sync)).map_err(err)?;
+    if let Some(k) = key {
+        let k = k.trim();
+        if !k.is_empty() && k.len() < 32 {
+            return Err("That key looks too short. Copy the whole key from the income tracker.".into());
+        }
+        db.set_setting("syncKey", &serde_json::json!(k)).map_err(err)?;
+    }
+    Ok(())
+}
+
+#[tauri::command]
+fn sync_now(app: AppHandle, state: State<'_, Shared>) -> Result<(), String> {
+    if !sync::settings(&*state.db.lock().map_err(err)?)?.has_key {
+        return Err("Paste a sync key from the income tracker first.".into());
+    }
+    start_sync(app, state.inner().clone());
+    Ok(())
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SyncEvent {
+    state: &'static str,
+    message: Option<String>,
+    outcome: Option<sync::Outcome>,
+}
+
+/// One sync at a time, in the background. Reports through "sync-status" events.
+fn start_sync(app: AppHandle, state: Shared) {
+    if state.syncing.swap(true, Ordering::SeqCst) {
+        return;
+    }
+    std::thread::spawn(move || {
+        let _ = app.emit("sync-status", SyncEvent { state: "running", message: None, outcome: None });
+        let planned = state.db.lock().map_err(err).and_then(|db| sync::plan(&db));
+        let result = match planned {
+            Ok(Some(plan)) => sync::run(plan, &state.cache_dir),
+            Ok(None) => Err("Paste a sync key from the income tracker first.".into()),
+            Err(e) => Err(e),
+        };
+        let event = match result {
+            Ok(outcome) => {
+                if let Ok(db) = state.db.lock() {
+                    let _ = db.set_setting("lastSyncAt", &serde_json::json!(outcome.finished_at));
+                }
+                SyncEvent { state: "done", message: None, outcome: Some(outcome) }
+            }
+            Err(e) => {
+                log::warn!("sync failed: {e}");
+                SyncEvent { state: "error", message: Some(e), outcome: None }
+            }
+        };
+        state.syncing.store(false, Ordering::SeqCst);
+        let _ = app.emit("sync-status", event);
+    });
+}
+
 // --------------------------------------------------------- background work
 
 /// Scan → merge → (import) → notify UI → thumbnails → notify UI. One at a time.
@@ -401,11 +478,18 @@ fn start_rescan(app: AppHandle, state: Shared, bookrack: Option<import::Bookrack
     std::thread::spawn(move || {
         let result = run_rescan(&app, &state, bookrack);
         state.busy.store(false, Ordering::SeqCst);
+        let ok = result.is_ok();
         if let Err(e) = result {
             log::error!("rescan failed: {e}");
             let _ = app.emit("scan-error", e);
         }
         let _ = app.emit("busy", false);
+        if ok {
+            let auto = state.db.lock().ok().and_then(|db| sync::settings(&db).ok()).is_some_and(|s| s.auto_sync && s.has_key);
+            if auto {
+                start_sync(app.clone(), state.clone());
+            }
+        }
     });
 }
 
@@ -525,6 +609,7 @@ pub fn run() {
                 data_dir,
                 cache_dir,
                 busy: AtomicBool::new(false),
+                syncing: AtomicBool::new(false),
             });
             app.manage(state.clone());
             // Show cached data immediately; refresh from disk in the background.
@@ -558,7 +643,10 @@ pub fn run() {
             forget,
             export_backup,
             restore_backup,
-            reset_data
+            reset_data,
+            get_sync_settings,
+            set_sync_settings,
+            sync_now
         ])
         .run(tauri::generate_context!())
         .expect("error while running Atelier");

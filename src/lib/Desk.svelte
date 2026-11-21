@@ -7,8 +7,7 @@
 
   const DAY = 86_400_000;
   const now = new Date();
-  const greeting = now.getHours() < 12 ? 'Good morning.' : now.getHours() < 18 ? 'Good afternoon.' : 'Good evening.';
-  const dateLine = now.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+  const dateLine = now.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' });
 
   const first = $derived(statuses[0] ?? 'In-Progress');
   const inProgress = $derived(
@@ -42,27 +41,21 @@
 </script>
 
 <div class="desk">
-  <section class="hero">
-    <div class="greet">
-      <div class="date">{dateLine}</div>
-      <h1 class="display">{greeting}</h1>
-    </div>
-    <div class="stats">
-      <button class="stat" onclick={() => onGo('library')}>
-        <span class="l">Projects</span><span class="v display">{fmt(all.length)}</span>
-        <span class="note">{thisMonth.length ? `+${thisMonth.length} this month` : 'None yet this month'}</span>
+  <section class="top">
+    <h1 class="display">Desk</h1>
+    <span class="today">{dateLine}</span>
+    <div class="facts">
+      <button class="fact" onclick={() => onGo('library')}>
+        <span class="v display">{fmt(all.length)}</span> projects{#if thisMonth.length}<span class="note">+{thisMonth.length} this month</span>{/if}
       </button>
-      <button class="stat" onclick={() => onGo('library', { statuses: [first] })}>
-        <span class="l">In progress</span><span class="v display">{fmt(inProgress.length)}</span>
-        <span class="note" class:warn={stale.length}>{stale.length ? `${stale.length} untouched 30d+` : 'All recently opened'}</span>
+      <button class="fact" onclick={() => onGo('library', { statuses: [first] })}>
+        <span class="v display">{fmt(inProgress.length)}</span> {first.toLowerCase()}{#if stale.length}<span class="note warn">{stale.length} untouched 30d+</span>{/if}
       </button>
-      <button class="stat" onclick={() => onGo('library', { statuses: statuses.slice(1) })}>
-        <span class="l">Completed</span><span class="v display">{pct}%</span>
-        <span class="note">{fmt(completed)} {statuses.slice(1).join(' or ').toLowerCase()}</span>
+      <button class="fact" onclick={() => onGo('library', { statuses: statuses.slice(1) })} title="{pct}% of all projects">
+        <span class="v display">{fmt(completed)}</span> {statuses.slice(1).join(' or ').toLowerCase()}
       </button>
-      <button class="stat" onclick={() => onGo('favorites')}>
-        <span class="l">Favorites</span><span class="v display">{fmt(favorites)}</span>
-        <span class="note">Portfolio picks</span>
+      <button class="fact" onclick={() => onGo('favorites')}>
+        <span class="v display">{fmt(favorites)}</span> favorites
       </button>
     </div>
   </section>
@@ -79,12 +72,12 @@
           <button class="card" onclick={() => onOpenProject(p.id)} title="Open {p.title} in the Library">
             <Cover {p} v={versions[p.id] ?? 0} {busy} />
             <span class="t">{p.title}</span>
-            <span class="w" class:warn={isStale(p)}>{relative(p.lastOpenedAt)}</span>
+            {#if p.lastOpenedAt}<span class="w" class:warn={isStale(p)}>{relative(p.lastOpenedAt)}</span>{/if}
           </button>
         {/each}
       </div>
     {:else}
-      <p class="empty">Nothing in progress. Nice.</p>
+      <p class="empty">Nothing in progress.</p>
     {/if}
   </section>
 
@@ -120,16 +113,11 @@
       {/each}
 
       <div class="month">
-        <div class="mh">
-          <span class="mn display">{String(now.getMonth() + 1).padStart(2, '0')}</span>
-          <div>
-            <div class="mt">{now.toLocaleDateString('en-GB', { month: 'long', year: 'numeric' })}</div>
-            <div class="ms">This month · {thisMonth.length} {thisMonth.length === 1 ? 'project' : 'projects'} so far</div>
-          </div>
-        </div>
+        <div class="head"><h2 class="display small">{now.toLocaleDateString('en-GB', { month: 'long', year: 'numeric' })}</h2>
+          <span class="sub">{thisMonth.length ? `${thisMonth.length} ${thisMonth.length === 1 ? 'project' : 'projects'} so far` : 'No projects yet'}</span></div>
         <div class="mb">
-          <button class="dark" onclick={onOpenMonth}>Open month folder</button>
-          <button class="outline" onclick={onOpenRoot}>Library folder</button>
+          <button class="btn small" onclick={onOpenMonth}>Open month folder</button>
+          <button class="btn small quiet" onclick={onOpenRoot}>Library folder</button>
         </div>
       </div>
     </div>
@@ -137,17 +125,16 @@
 </div>
 
 <style>
-  .desk { padding: 56px var(--gutter) 80px; display: flex; flex-direction: column; gap: 56px; }
-  .hero { display: flex; align-items: flex-end; gap: 40px; flex-wrap: wrap; }
-  .greet { flex: 1 1 340px; }
-  .date { font-size: 12px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--text-2); }
-  h1 { margin: 10px 0 0; font-size: clamp(64px, 6vw, 104px); line-height: 0.9; letter-spacing: -0.02em; }
-  .stats { display: flex; flex-wrap: wrap; border-top: 2px solid var(--text); }
-  .stat { width: 200px; padding: 14px 24px 0 0; display: flex; flex-direction: column; gap: 4px; border: 0; background: none; text-align: left; color: var(--text); }
-  .stat:hover .v { color: #fff; }
-  .l { font-size: 12px; color: var(--text-2); }
-  .v { font-size: 60px; line-height: 1; font-stretch: 75%; font-weight: 600; }
-  .note { font-size: 12px; color: var(--text-3); }
+  .desk { padding: 0 var(--gutter) 80px; display: flex; flex-direction: column; gap: 48px; }
+  /* Same rhythm as the Library toolbar: page title, then the facts as filters. */
+  .top { display: flex; align-items: baseline; gap: 16px; flex-wrap: wrap; padding: 22px 0 20px; margin: 0 calc(-1 * var(--gutter)); padding-inline: var(--gutter); border-bottom: 1px solid var(--line); }
+  h1 { margin: 0; font-size: 36px; line-height: 1; font-stretch: 70%; }
+  .today { color: var(--text-2); font-size: 14px; }
+  .facts { margin-left: auto; display: flex; flex-wrap: wrap; gap: 4px 28px; }
+  .fact { display: inline-flex; align-items: baseline; gap: 6px; padding: 0; border: 0; background: none; color: var(--text-2); font-size: 14px; }
+  .fact:hover { color: var(--text); }
+  .v { font-size: 24px; line-height: 1; font-stretch: 75%; font-weight: 600; color: var(--text); font-variant-numeric: tabular-nums; }
+  .note { font-size: 12px; color: var(--text-3); margin-left: 4px; }
   .warn { color: var(--warning); }
   .head { display: flex; align-items: baseline; gap: 14px; border-bottom: 1px solid var(--line); padding-bottom: 10px; margin-bottom: 18px; }
   h2 { margin: 0; font-size: 26px; font-stretch: 75%; }
@@ -180,13 +167,8 @@
   .c { flex: 1; }
   .num { font-variant-numeric: tabular-nums; }
   .pct { width: 40px; text-align: right; color: var(--text-3); font-variant-numeric: tabular-nums; }
-  .month { margin-top: 20px; padding: 20px; background: var(--text); color: var(--on-text); border-radius: 6px; display: flex; flex-direction: column; gap: 14px; }
-  .mh { display: flex; align-items: baseline; gap: 12px; }
-  .mn { font-size: 44px; line-height: 0.9; }
-  .mt { font-weight: 600; }
-  .ms { font-size: 12px; color: #55554f; }
+  .month { margin-top: 32px; }
+  .month .head { margin-bottom: 4px; }
   .mb { display: flex; gap: 8px; flex-wrap: wrap; }
-  .dark { height: 38px; padding: 0 14px; border: 0; border-radius: 6px; background: var(--on-text); color: var(--text); font-size: 13px; font-weight: 600; }
-  .dark:hover { background: var(--line); }
-  .outline { height: 38px; padding: 0 14px; border: 1px solid var(--text-3); border-radius: 6px; background: none; color: var(--on-text); font-size: 13px; }
+  .mb :global(.btn.small) { margin-top: 8px; }
 </style>

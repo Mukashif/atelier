@@ -91,7 +91,8 @@
         <button class="btn" onclick={onChangeCover}>Change cover</button>
         <button class="btn" onclick={startRename}>Rename</button>
         <button class="btn" onclick={() => onEdit({ kind: 'favorite', value: !p.isFavorite })}>
-          {p.isFavorite ? '★ Favourite' : '☆ Favourite'}
+          <svg width="14" height="14" viewBox="0 0 24 24" aria-hidden="true"><path fill={p.isFavorite ? 'currentColor' : 'none'} stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" d="M12 2.8l2.8 5.9 6.4.8-4.7 4.4 1.2 6.4L12 17.2l-5.7 3.1 1.2-6.4-4.7-4.4 6.4-.8z" /></svg>
+          {p.isFavorite ? 'Favorite' : 'Add to favorites'}
         </button>
         <button class="btn quiet" onclick={() => onEdit({ kind: 'archived', value: !p.isArchived })}>
           {p.isArchived ? 'Unarchive' : 'Archive'}

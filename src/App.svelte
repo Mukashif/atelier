@@ -50,7 +50,7 @@
       [['←', '→', '↑', '↓'], 'Move between covers'],
       [['Enter'], 'Open folder'],
       [['F2'], 'Rename'],
-      [['F'], 'Favourite on / off'],
+      [['F'], 'Favorite on / off'],
       [['Del'], 'Archive'],
       [['Ctrl', 'A'], 'Select all (in select mode)'],
       [['Ctrl', 'Scroll'], 'Bigger / smaller covers'],
@@ -456,7 +456,7 @@
         <FilterMenu label="Status" options={optionsFor('statuses')} selected={filters.statuses} onChange={(v) => (filters = { ...filters, statuses: v })} />
         <FilterMenu label="Tags" options={optionsFor('tags')} selected={filters.tags} onChange={(v) => (filters = { ...filters, tags: v })} searchable />
         {#if filterCount}<button class="linkbtn" onclick={() => (filters = { categories: [], statuses: [], tags: [] })}>Clear filters</button>{/if}
-        <span class="mono meta">{projects.length.toLocaleString('en-GB')} {debounced ? `MATCHING “${debounced.toUpperCase()}”` : 'PROJECTS'}</span>
+        <span class="meta">{projects.length.toLocaleString('en-GB')} {debounced ? `matching “${debounced}”` : projects.length === 1 ? 'project' : 'projects'}</span>
         {#if scanning}
           <span class="status" role="status">
             {progress.phase === 'scan' ? 'Scanning folders…' : `Making thumbnails · ${progress.total - progress.done} left`}
@@ -495,8 +495,8 @@
             <p>Each filter narrows the list further. Remove one, or start over.</p>
             <button class="btn primary" onclick={() => (filters = { categories: [], statuses: [], tags: [] })}>Clear all filters</button>
           {:else if view === 'favorites'}
-            <h2 class="display">No favourites yet</h2>
-            <p>Favourites are your portfolio picks. Select a cover and press F, or right-click it.</p>
+            <h2 class="display">No favorites yet</h2>
+            <p>Favorites are your portfolio picks. Select a cover and press F, or right-click it.</p>
           {:else if view === 'archive'}
             <h2 class="display">Nothing archived</h2>
             <p>Archiving hides a project from the Library and Desk. Its folder stays exactly where it is on disk.</p>
@@ -591,6 +591,7 @@
   .search { width: 440px; height: 36px; display: flex; align-items: center; gap: 10px; padding: 0 12px; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; color: var(--text-3); }
   .search:focus-within { border-color: var(--text-2); }
   .search input { flex: 1; min-width: 0; border: 0; outline: none; background: transparent; color: var(--text); }
+  .search input::placeholder { color: var(--text-3); }
   .search kbd { font-family: var(--font-ui); font-size: 11px; color: var(--text-3); }
   .clear { border: 0; background: var(--line); color: var(--text-2); width: 22px; height: 22px; border-radius: 50%; line-height: 1; }
   .icon-btn.on { background: var(--line); }
@@ -619,7 +620,7 @@
   .toolbar { flex: none; display: flex; align-items: center; gap: 10px; padding: 16px var(--gutter); border-bottom: 1px solid var(--line); flex-wrap: wrap; position: relative; z-index: 5; }
   .toolbar h1 { margin: 0 14px 0 0; font-size: 36px; line-height: 1; font-stretch: 70%; }
   .linkbtn { border: 0; background: none; color: var(--text-2); text-decoration: underline; font-size: 13px; }
-  .meta { font-size: 12px; color: var(--text-3); margin-left: 8px; }
+  .meta { font-size: 13px; color: var(--text-3); margin-left: 8px; }
   .status { font-size: 13px; color: var(--text-2); }
   .muted { color: var(--text-3); }
   .right { margin-left: auto; display: flex; align-items: center; gap: 20px; }
@@ -645,7 +646,7 @@
   .empty h2 { margin: 0; font-size: 34px; color: var(--text); font-stretch: 75%; }
   .empty p { margin: 0; line-height: 1.55; }
   .toast { position: fixed; left: 50%; bottom: 40px; transform: translateX(-50%); z-index: 80; display: flex; align-items: center; gap: 12px; min-height: 52px; padding: 0 8px 0 18px; background: var(--text); color: var(--on-text); border-radius: 10px; font-size: 14px; font-weight: 500; box-shadow: 0 20px 50px rgba(0, 0, 0, 0.6); max-width: 70vw; }
-  .toast.error { background: var(--menu); color: var(--text); border: 1px solid #5a2a24; border-left: 3px solid var(--danger); }
+  .toast.error { background: var(--menu); color: var(--text); border: 1px solid #7a3328; }
   .undo { height: 36px; padding: 0 14px; border: 0; border-radius: 7px; background: var(--on-text); color: var(--text); font-weight: 600; }
   .x { width: 34px; height: 34px; border: 0; background: none; color: inherit; opacity: 0.6; font-size: 18px; }
 </style>

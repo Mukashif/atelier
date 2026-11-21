@@ -58,7 +58,7 @@
     position: absolute; inset: 0; padding: 12px;
     display: flex; color: var(--text-3); font-size: 12px; text-align: center;
   }
-  .pending { align-items: flex-end; color: var(--text-4); background: var(--hover); }
+  .pending { align-items: flex-end; color: var(--text-3); background: var(--hover); }
   .center { flex-direction: column; align-items: center; justify-content: center; gap: 8px; }
   .dashed { background: transparent; box-shadow: none; outline: 1.5px dashed var(--border); outline-offset: -1.5px; }
   .file { font-size: 11px; color: var(--text-2); word-break: break-all; }

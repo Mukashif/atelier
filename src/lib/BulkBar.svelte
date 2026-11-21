@@ -55,7 +55,7 @@
       {/if}
     </Menu>
   </div>
-  <button class="b" disabled={!count} onclick={() => apply({ kind: 'favorite', value: true })}>★ Favourite</button>
+  <button class="b" disabled={!count} onclick={() => apply({ kind: 'favorite', value: true })}>Add to favorites</button>
   <button class="b" disabled={!count} onclick={() => apply({ kind: 'archived', value: true })}>Archive</button>
 
   <span class="hint grow">Click to select · Shift-click selects a range · Ctrl A selects all</span>

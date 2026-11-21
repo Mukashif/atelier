@@ -71,7 +71,7 @@
   </div>
   <span class="sep"></span>
   <button class="mi" role="menuitem" onmouseenter={() => (sub = null)} onclick={() => act('favorite', !p.isFavorite)}>
-    {p.isFavorite ? 'Remove from favourites' : 'Add to favourites'}<kbd>F</kbd>
+    {p.isFavorite ? 'Remove from favorites' : 'Add to favorites'}<kbd>F</kbd>
   </button>
   <button class="mi" role="menuitem" onmouseenter={() => (sub = null)} onclick={() => act('archived', !p.isArchived)}>
     {p.isArchived ? 'Unarchive' : 'Archive'}<kbd>Del</kbd>

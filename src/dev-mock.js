@@ -41,7 +41,7 @@ function list(q) {
   return rows.map((p) => ({ ...p, tags: [...p.tags] }));
 }
 
-const prefs = { defaultCategory: categories[0], openOnLaunch: "desk", groupByMonth: true, reduceMotion: false, checkUpdatesOnLaunch: true, lastExportAt: null };
+const prefs = { defaultCategory: categories[0], openOnLaunch: new URLSearchParams(location.search).get('open') ?? "desk", groupByMonth: true, reduceMotion: false, checkUpdatesOnLaunch: true, lastExportAt: null };
 function settings() {
   const counts = {};
   for (const p of list({})) {
@@ -66,6 +66,26 @@ function edit(ids, e) {
 }
 
 mockConvertFileSrc('windows');
+
+// Stand-in cover art so the preview shows covers instead of empty boxes.
+const palettes = [['#2b3a42', '#e8d9b5'], ['#5a2e2a', '#f1e4c8'], ['#1f2d24', '#d6c48f'], ['#3b3350', '#ece3f0'],
+  ['#c9b98f', '#2a241c'], ['#24344d', '#f3c77a'], ['#6b4a2b', '#f5ead6'], ['#14181c', '#c94f3d']];
+function coverSvg(p) {
+  const [bg, fg] = palettes[p.id % palettes.length];
+  const words = p.title.replace(/ \d+$/, '').toUpperCase().split(' ');
+  const lines = words.map((w, i) => `<text x="40" y="${150 + i * 46}" font-size="40" font-weight="700" letter-spacing="1" fill="${fg}">${w.replace('&', '&amp;')}</text>`).join('');
+  const motif = p.id % 3 === 0
+    ? `<circle cx="200" cy="420" r="110" fill="none" stroke="${fg}" stroke-opacity=".5" stroke-width="2"/>`
+    : p.id % 3 === 1 ? `<rect x="40" y="330" width="320" height="2" fill="${fg}" opacity=".6"/><rect x="40" y="350" width="180" height="2" fill="${fg}" opacity=".35"/>`
+    : `<path d="M0 470 Q100 410 200 450 T400 430 V600 H0Z" fill="${fg}" opacity=".18"/>`;
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 600"><rect width="400" height="600" fill="${bg}"/>${motif}<g font-family="Georgia, serif">${lines}<text x="40" y="560" font-size="15" letter-spacing="4" fill="${fg}" opacity=".7">A NOVEL</text></g></svg>`;
+}
+const realConvert = window.__TAURI_INTERNALS__.convertFileSrc;
+window.__TAURI_INTERNALS__.convertFileSrc = (path, protocol) => {
+  if (protocol !== 'thumb') return realConvert(path, protocol);
+  const p = projects.find((x) => x.id === parseInt(path, 10));
+  return p ? `data:image/svg+xml;utf8,${encodeURIComponent(coverSvg(p))}#` : realConvert(path, protocol);
+};
 mockIPC(
   (cmd, args) => {
     switch (cmd) {

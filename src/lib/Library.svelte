@@ -206,7 +206,7 @@
           <div class="sticky">
             <span class="num display">{g.label.num}</span>
             <span class="name">{g.label.name}</span>
-            <span class="count mono">{g.items.length} {view === 'archive' ? 'ARCHIVED' : 'PROJECTS'}</span>
+            <span class="count">{g.items.length} {view === 'archive' ? 'archived' : g.items.length === 1 ? 'project' : 'projects'}</span>
             {#if selectMode}
               {@const allOn = g.items.every((p) => selectedSet.has(p.id))}
               <button class="btn small" onclick={() => onSetSelected(g.items.map((p) => p.id), !allOn)}>
@@ -239,7 +239,7 @@
                 <span class="t">{p.title}</span>
                 <span class="s">
                   <span class="dot" style:background={statusColor(p.status, statuses)}></span>{p.status}
-                  {#if p.isFavorite}<span class="star" aria-label="Favourite">★</span>{/if}
+                  {#if p.isFavorite}<svg class="star" width="12" height="12" viewBox="0 0 24 24" role="img" aria-label="Favorite"><path fill="currentColor" d="M12 2.8l2.8 5.9 6.4.8-4.7 4.4 1.2 6.4L12 17.2l-5.7 3.1 1.2-6.4-4.7-4.4 6.4-.8z" /></svg>{/if}
                 </span>
               </button>
             {/each}
@@ -277,7 +277,7 @@
   .sticky { position: sticky; top: 24px; display: flex; flex-direction: column; gap: 6px; }
   .num { font-size: 72px; line-height: 0.85; }
   .name { font-weight: 600; }
-  .count { font-size: 12px; color: var(--text-3); }
+  .count { font-size: 13px; color: var(--text-3); }
   .grid-col { flex: 1; min-width: 0; padding: 32px var(--gutter) 40px 40px; display: flex; flex-direction: column; gap: 32px; }
   .wall .grid-col { padding-left: var(--gutter); }
   .row { display: grid; }

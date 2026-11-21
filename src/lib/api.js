@@ -48,7 +48,7 @@ export function categoryColor(name) {
   let h = 0;
   const s = name.toLowerCase();
   for (let i = 0; i < s.length; i++) h = (Math.imul(h, 31) + s.charCodeAt(i)) | 0;
-  return `oklch(0.74 0.12 ${Math.abs(h) % 360})`;
+  return `oklch(0.72 0.075 ${Math.abs(h) % 360})`;
 }
 
 export function monthLabel(p) {

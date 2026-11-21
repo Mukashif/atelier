@@ -166,7 +166,7 @@
 {#if confirm?.kind === 'reset'}
   <Dialog title="Reset library data?" onCancel={() => (confirm = null)}>
     {#snippet children()}
-      <p><span class="rm">Removed:</span> titles you renamed, statuses, categories, tags, favourites, archive and covers you picked.</p>
+      <p><span class="rm">Removed:</span> titles you renamed, statuses, categories, tags, favorites, archive and covers you picked.</p>
       <p><span class="kp">Kept:</span> your project folders and files, your category and status lists, your settings.</p>
       <label class="chk"><input type="checkbox" bind:checked={confirm.backupFirst} /> Export a backup first <span class="muted small">(recommended)</span></label>
     {/snippet}
@@ -347,7 +347,7 @@
       </section>
 
       <section id="s-data">
-        <div class="about"><h2 class="display">Backup &amp; data</h2><p>Your edits — titles, statuses, categories, tags, favourites — live in Atelier’s own data folder, not in your projects.</p></div>
+        <div class="about"><h2 class="display">Backup &amp; data</h2><p>Your edits — titles, statuses, categories, tags, favorites — live in Atelier’s own data folder, not in your projects.</p></div>
         <div class="ctl">
           <div class="card row">
             <div class="grow"><div>Export backup</div><div class="muted small">{since(s.lastExportAt)}</div></div>
@@ -364,7 +364,7 @@
           <div class="card row danger-box">
             <div class="grow">
               <div class="danger-t">Reset library data</div>
-              <div class="muted small">Clears every edit Atelier stores: titles, statuses, categories, tags, favourites, archive and covers you picked. Your category and status lists are kept. Project folders and files are never touched.</div>
+              <div class="muted small">Clears every edit Atelier stores: titles, statuses, categories, tags, favorites, archive and covers you picked. Your category and status lists are kept. Project folders and files are never touched.</div>
             </div>
             <button class="btn danger" onclick={() => (confirm = { kind: 'reset', backupFirst: true })}>Reset…</button>
           </div>
